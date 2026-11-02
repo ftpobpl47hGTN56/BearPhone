@@ -5,6 +5,7 @@ import android.provider.CallLog
 import android.provider.ContactsContract
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -92,6 +93,7 @@ fun ContactCardScreen(
     val totalTalk = remember(history) { history.sumOf { it.durationSec } }
 
     val rule = block.rules.firstOrNull { NumberMatcher.matches(it.pattern, number) }
+    val style = com.bearphone.app.ui.theme.LocalBearStyle.current
     val listState = rememberLazyListState()
 
     Column(Modifier.fillMaxSize()) {
@@ -104,6 +106,15 @@ fun ContactCardScreen(
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
                 // ---- шапка ----
                 item {
+                    androidx.compose.material3.Surface(
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        border = style.borderStroke,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .bearFrame(androidx.compose.foundation.shape.RoundedCornerShape(24.dp))
+                    ) {
                     Column(
                         Modifier.fillMaxWidth().padding(16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -175,6 +186,7 @@ fun ContactCardScreen(
                             }
                         }
                     }
+                    }
                 }
 
                 // ---- история ----
@@ -214,8 +226,16 @@ private fun HistoryLine(e: CallLogEntry) {
         CallLog.Calls.BLOCKED_TYPE -> Triple(Icons.Filled.Block, MaterialTheme.colorScheme.onSurfaceVariant, "Заблокирован")
         else -> Triple(Icons.AutoMirrored.Filled.CallReceived, CallGreen, "Входящий")
     }
+    val style = com.bearphone.app.ui.theme.LocalBearStyle.current
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            // Каждый звонок — в своей рамке (толщина/цвет из Оформления)
+            .then(if (style.border > 0.dp) Modifier.border(style.border, style.borderColor, shape) else Modifier)
+            .background(MaterialTheme.colorScheme.surfaceContainerLow, shape)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(

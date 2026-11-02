@@ -160,6 +160,7 @@ class MainActivity : ComponentActivity() {
                                 contacts = contacts,
                                 recents = recents,
                                 onCall = ::placeCall,
+                                onMessage = { openSms = it; tab = TAB_MESSAGES },
                             )
                             TAB_RECENTS -> RecentsScreen(
                                 entries = recents,
@@ -181,6 +182,7 @@ class MainActivity : ComponentActivity() {
                                 onCall = ::placeCall,
                                 onRequestPermissions = { permissionLauncher.launch(permissions) },
                                 onChanged = { smsTick++ },
+                                calls = recents,
                             )
                             TAB_CONTACTS -> ContactsScreen(
                                 contacts = contacts,

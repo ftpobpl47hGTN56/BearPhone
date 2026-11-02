@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+import androidx.compose.ui.layout.onSizeChanged
 import com.bearphone.app.block.NumberMatcher
 import com.bearphone.app.data.CallLogEntry
 import com.bearphone.app.ui.theme.CallRed
@@ -112,15 +114,27 @@ fun KeypadScreen(
     contacts: List<Contact>,
     recents: List<CallLogEntry>,
     onCall: (String) -> Unit,
+    onMessage: (String) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
     val block by BlockStore.state.collectAsState()
-    var padVisible by rememberSaveable { mutableStateOf(true) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val uiPrefs = remember { ctx.getSharedPreferences("bear_ui", android.content.Context.MODE_PRIVATE) }
+    // Спрятана клавиатура или нет — запоминается между запусками
+    var padVisible by remember { mutableStateOf(uiPrefs.getBoolean("pad_visible", true)) }
+    LaunchedEffect(padVisible) { uiPrefs.edit().putBoolean("pad_visible", padVisible).apply() }
     var query by rememberSaveable { mutableStateOf("") }
     val listState = rememberLazyListState()
 
     // Номер пришёл снаружи (tel:-ссылка, «изменить перед вызовом») — показываем клавиатуру
     LaunchedEffect(number) { if (number.isNotEmpty()) padVisible = true }
+
+    // ---- карточка контакта (кнопка → в истории) ----
+    var cardFor by rememberSaveable { mutableStateOf<String?>(null) }
+    cardFor?.let { n ->
+        ContactCardScreen(n, recents, onBack = { cardFor = null }, onCall = onCall, onMessage = onMessage)
+        return
+    }
     // Начали листать историю — прячем клавиатуру, как в обычных звонилках
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress && padVisible && number.isEmpty()) padVisible = false
@@ -207,7 +221,7 @@ fun KeypadScreen(
                         if (foundCalls.isNotEmpty()) {
                             item { SectionTitle("Вызовы") }
                             items(foundCalls, key = { "h" + it.first.id }) { (e, n) ->
-                                HistoryRow(e, n, q, mark, onCall, onNumberChange)
+                                HistoryRow(e, n, q, mark, onCall, onNumberChange) { cardFor = it }
                             }
                         }
                     }
@@ -221,7 +235,7 @@ fun KeypadScreen(
                     else -> {
                         item { SectionTitle("Недавние") }
                         items(history, key = { "h" + it.first.id }) { (e, n) ->
-                            HistoryRow(e, n, "", mark, onCall, onNumberChange)
+                            HistoryRow(e, n, "", mark, onCall, onNumberChange) { cardFor = it }
                         }
                     }
                 }
@@ -277,7 +291,11 @@ private fun DialPad(
 ) {
     val style = LocalBearStyle.current
     val shape = RoundedCornerShape(28.dp)
-    var dragY by remember { mutableFloatStateOf(0f) }
+    val onHideState = androidx.compose.runtime.rememberUpdatedState(onHide)
+    // Смещение карточки при свайпе. Animatable — чтобы возврат/уход были плавными, без скачка
+    val drag = remember { androidx.compose.animation.core.Animatable(0f) }
+    val dragScope = androidx.compose.runtime.rememberCoroutineScope()
+    var panelHeight by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -285,20 +303,28 @@ private fun DialPad(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
-            // Свайп вниз по клавиатуре — спрятать (карточка едет за пальцем)
-            .offset { androidx.compose.ui.unit.IntOffset(0, dragY.roundToInt()) }
+            .onSizeChanged { panelHeight = it.height }
+            // Свайп вниз — спрятать. ВАЖНО: жест ловим ДО offset, в неподвижных координатах.
+            // Раньше было наоборот: карточка сдвигалась, координаты пальца вместе с ней — и она дёргалась.
             .pointerInput(Unit) {
                 detectVerticalDragGestures(
                     onDragEnd = {
-                        if (dragY > 80.dp.toPx()) onHide()
-                        dragY = 0f
+                        dragScope.launch {
+                            if (drag.value > 80.dp.toPx()) {
+                                drag.animateTo(panelHeight.toFloat(), androidx.compose.animation.core.tween(160))
+                                onHideState.value()
+                            } else {
+                                drag.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.8f))
+                            }
+                        }
                     },
-                    onDragCancel = { dragY = 0f },
+                    onDragCancel = { dragScope.launch { drag.animateTo(0f) } },
                 ) { change, dy ->
-                    dragY = (dragY + dy).coerceAtLeast(0f)
-                    if (dragY > 0f) change.consume()
+                    change.consume()
+                    dragScope.launch { drag.snapTo((drag.value + dy).coerceAtLeast(0f)) }
                 }
             }
+            .offset { androidx.compose.ui.unit.IntOffset(0, drag.value.roundToInt()) }
             .bearFrame(shape)
     ) {
         Column(Modifier.padding(bottom = 12.dp)) {
@@ -319,7 +345,8 @@ private fun DialPad(
 
             // ---- поле номера ----
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                // Фиксированная высота: длинный номер мельче шрифтом, но карточка не "прыгает"
+                Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.width(48.dp))
@@ -408,6 +435,7 @@ private fun ContactRow(c: Contact, q: String, mark: Color, onCall: () -> Unit, o
 private fun HistoryRow(
     e: CallLogEntry, count: Int, q: String, mark: Color,
     onCall: (String) -> Unit, onPick: (String) -> Unit,
+    onCard: (String) -> Unit,
 ) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val missed = e.type == CallLog.Calls.MISSED_TYPE || e.type == CallLog.Calls.REJECTED_TYPE
@@ -453,7 +481,12 @@ private fun HistoryRow(
                 )
             }
         }
-        Icon(Icons.Filled.Call, "Позвонить", tint = MaterialTheme.colorScheme.primary)
+        if (e.number.isNotBlank()) {
+            IconButton(onClick = { onCall(e.number) }) {
+                Icon(Icons.Filled.Call, "Позвонить", tint = MaterialTheme.colorScheme.primary)
+            }
+            CardArrowButton { onCard(e.number) }
+        }
     }
 }
 

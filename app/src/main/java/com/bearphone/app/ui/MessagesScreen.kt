@@ -100,6 +100,8 @@ fun MessagesScreen(
     onChanged: () -> Unit,
     /** Текст для поля ввода (пришёл вместе с sms:-ссылкой) */
     draft: String? = null,
+    /** Журнал вызовов — для карточки контакта из диалога */
+    calls: List<com.bearphone.app.data.CallLogEntry> = emptyList(),
 ) {
     if (!canRead) {
         Column(
@@ -148,6 +150,7 @@ fun MessagesScreen(
             focusId = focus?.first,
             highlightQuery = focus?.second.orEmpty(),
             draft = draft,
+            calls = calls,
         )
         return
     }
@@ -522,8 +525,22 @@ private fun ConversationScreen(
     focusId: Long? = null,
     highlightQuery: String = "",
     draft: String? = null,
+    calls: List<com.bearphone.app.data.CallLogEntry> = emptyList(),
 ) {
     val ctx = LocalContext.current
+
+    // ---- карточка отправителя (кнопка → в шапке) ----
+    var cardOpen by rememberSaveable(address) { mutableStateOf(false) }
+    if (cardOpen) {
+        ContactCardScreen(
+            number = address,
+            allCalls = calls,
+            onBack = { cardOpen = false },
+            onCall = onCall,
+            onMessage = { cardOpen = false },
+        )
+        return
+    }
     val scope = rememberCoroutineScope()
     var text by rememberSaveable(address) { mutableStateOf(draft.orEmpty()) }
 
@@ -602,6 +619,7 @@ private fun ConversationScreen(
                 }
             }
             MuteButton(address)
+            if (canReply) CardArrowButton { cardOpen = true }
             if (canReply) {
                 IconButton(onClick = { onCall(address) }) {
                     Icon(Icons.Filled.Call, "Позвонить", tint = MaterialTheme.colorScheme.primary)
@@ -812,7 +830,7 @@ private fun Bubble(
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                DateFormat.getTimeFormat(ctx).format(m.dateMillis) +
+                smsDateTime(ctx, m.dateMillis) +
                     when {
                         failed -> " · не отправлено"
                         pending -> " · отправка…"
@@ -888,3 +906,7 @@ private fun smsParts(text: String): Int {
     val multi = if (gsm) 153 else 67
     return if (text.length <= single) 1 else (text.length + multi - 1) / multi
 }
+
+/** Полная дата и время сообщения: "2 нояб. 2026 г., 18:39" */
+private fun smsDateTime(ctx: Context, millis: Long): String =
+    DateFormat.getMediumDateFormat(ctx).format(millis) + ", " + DateFormat.getTimeFormat(ctx).format(millis)

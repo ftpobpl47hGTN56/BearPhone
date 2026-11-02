@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -252,3 +254,24 @@ fun highlight(text: String, query: String, color: androidx.compose.ui.graphics.C
 /** Цифры запроса, если он похож на номер ("912 34" -> "91234"), иначе пусто. */
 fun queryDigits(query: String): String =
     if (query.any { it.isLetter() }) "" else query.filter { it.isDigit() }
+
+
+/** Круглая кнопка → "открыть карточку контакта". */
+@Composable
+fun CardArrowButton(onClick: () -> Unit) {
+    val primary = MaterialTheme.colorScheme.primary
+    androidx.compose.material3.FilledTonalIconButton(
+        onClick = onClick,
+        colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+            containerColor = primary.copy(alpha = 0.14f),
+            contentColor = primary,
+        ),
+        modifier = Modifier.size(36.dp)
+    ) {
+        Icon(
+            androidx.compose.material.icons.Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            "Карточка контакта",
+            modifier = Modifier.size(22.dp)
+        )
+    }
+}
