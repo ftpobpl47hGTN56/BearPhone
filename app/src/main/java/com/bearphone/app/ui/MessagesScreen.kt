@@ -125,15 +125,20 @@ fun MessagesScreen(
     }
     fun nameOf(address: String): String? = names[NumberMatcher.key(address)]
 
+    // Сообщение, к которому прыгнуть из поиска (id + запрос для подсветки)
+    var focus by remember { mutableStateOf<Pair<Long, String>?>(null) }
+
     if (openAddress != null) {
         ConversationScreen(
             address = openAddress,
             name = nameOf(openAddress),
             thread = SmsRepository.findThread(threads, openAddress),
             reloadTick = reloadTick,
-            onBack = onClose,
+            onBack = { focus = null; onClose() },
             onCall = onCall,
             onChanged = onChanged,
+            focusId = focus?.first,
+            highlightQuery = focus?.second.orEmpty(),
         )
         return
     }
@@ -149,6 +154,28 @@ fun MessagesScreen(
         if (sub == 0) threads.filterNot(::blocked) else threads.filter(::blocked)
     }
     val blockedUnread = remember(threads, block) { threads.filter(::blocked).sumOf { it.unread } }
+
+    // ---- поиск по SMS ----
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val hits by produceState(emptyList<SmsRepository.SearchHit>(), query, sub, block) {
+        val q = query.trim()
+        if (q.length < 2) { value = emptyList(); return@produceState }
+        kotlinx.coroutines.delay(250) // ждём, пока пользователь допечатает
+        value = SmsRepository.search(ctx, q).filter { h ->
+            val isBlocked = block.rules.any { NumberMatcher.matches(it.pattern, h.address) }
+            if (sub == 0) !isBlocked else isBlocked
+        }
+    }
+    val matchedThreads = remember(visible, query, names) {
+        val q = query.trim()
+        val digits = queryDigits(q)
+        if (q.length < 2) emptyList() else visible.filter { t ->
+            (nameOf(t.address)?.contains(q, ignoreCase = true) == true) ||
+                t.address.contains(q, ignoreCase = true) ||
+                (digits.isNotEmpty() && t.address.filter(Char::isDigit).contains(digits))
+        }
+    }
 
     var selected by remember { mutableStateOf(emptySet<Long>()) }
     val selecting = selected.isNotEmpty()
@@ -173,14 +200,28 @@ fun MessagesScreen(
                 onDelete = { confirmDelete = true },
             )
         } else {
-            SubTabs(
+            TabsWithSearch(
                 listOf("Входящие", if (blockedUnread > 0) "Заблокированные ($blockedUnread)" else "Заблокированные"),
-                sub
-            ) { sub = it; selected = emptySet() }
+                sub,
+                onSelect = { sub = it; selected = emptySet() },
+                onSearch = { searching = !searching; if (!searching) query = "" },
+            )
+            if (searching) {
+                SearchField(query, { query = it }, "Текст, имя или номер") { searching = false; query = "" }
+            }
         }
 
         Box(Modifier.fillMaxSize()) {
-            if (visible.isEmpty()) {
+            if (searching && query.trim().length >= 2) {
+                SearchResults(
+                    threads = matchedThreads,
+                    hits = hits,
+                    query = query.trim(),
+                    nameOf = ::nameOf,
+                    onOpenThread = { onOpen(it.address) },
+                    onOpenHit = { h -> focus = h.id to query.trim(); onOpen(h.address) },
+                )
+            } else if (visible.isEmpty()) {
                 EmptyState(if (sub == 0) "Сообщений нет" else "Нет SMS от заблокированных номеров")
             } else {
                 ThreadList(
@@ -339,6 +380,72 @@ private fun ThreadList(
     }
 }
 
+/** Результаты поиска: совпавшие диалоги (по имени/номеру) и сообщения (по тексту). */
+@Composable
+private fun SearchResults(
+    threads: List<SmsThread>,
+    hits: List<SmsRepository.SearchHit>,
+    query: String,
+    nameOf: (String) -> String?,
+    onOpenThread: (SmsThread) -> Unit,
+    onOpenHit: (SmsRepository.SearchHit) -> Unit,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val mark = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+    val listState = rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
+            if (threads.isEmpty() && hits.isEmpty()) {
+                item { EmptyState("Ничего не найдено") }
+            }
+            if (threads.isNotEmpty()) {
+                item { SectionTitle("Диалоги (${threads.size})") }
+                items(threads, key = { "t" + it.threadId }) { t ->
+                    val title = nameOf(t.address) ?: t.address
+                    Row(
+                        Modifier.fillMaxWidth().clickable { onOpenThread(t) }.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LetterAvatar(title)
+                        Spacer(Modifier.width(16.dp))
+                        Text(highlight(title, query, mark), style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                    }
+                }
+            }
+            if (hits.isNotEmpty()) {
+                item { SectionTitle("Сообщения (${if (hits.size >= 300) "300+" else hits.size})") }
+                items(hits, key = { "m" + it.id }) { h ->
+                    val title = nameOf(h.address) ?: h.address
+                    Column(
+                        Modifier.fillMaxWidth().clickable { onOpenHit(h) }.padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f), maxLines = 1)
+                            Text(relativeTime(h.dateMillis), style = MaterialTheme.typography.labelSmall, color = muted)
+                        }
+                        Text(
+                            highlight((if (h.outgoing) "Вы: " else "") + snippetAround(h.body, query), query, mark),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = muted,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        ScrollJumpButtons(listState)
+    }
+}
+
+/** Кусок текста вокруг найденного слова, чтобы совпадение было видно в 2 строках. */
+private fun snippetAround(body: String, query: String): String {
+    val flat = body.replace('\n', ' ')
+    val i = flat.indexOf(query, ignoreCase = true)
+    if (i <= 40) return flat
+    return "…" + flat.substring(i - 30)
+}
+
 private const val DELETE_NOTE =
     "Android разрешает удалять SMS только приложению SMS по умолчанию. " +
         "Если система не даст удалить, BearPhone скроет сообщения у себя " +
@@ -359,6 +466,8 @@ private fun ConversationScreen(
     onBack: () -> Unit,
     onCall: (String) -> Unit,
     onChanged: () -> Unit,
+    focusId: Long? = null,
+    highlightQuery: String = "",
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -377,8 +486,17 @@ private fun ConversationScreen(
         value = thread?.let { SmsRepository.loadMessages(ctx, it.threadId) } ?: emptyList()
     }
     val listState = rememberLazyListState()
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.scrollToItem(messages.lastIndex)
+    // Из поиска — прыгаем к найденному сообщению и подсвечиваем его, иначе — к последнему
+    var flashId by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(messages.size, focusId) {
+        if (messages.isEmpty()) return@LaunchedEffect
+        val idx = focusId?.let { id -> messages.indexOfFirst { it.id == id } } ?: -1
+        if (idx >= 0) {
+            listState.scrollToItem(idx)
+            flashId = focusId
+            kotlinx.coroutines.delay(2500)
+            flashId = null
+        } else listState.scrollToItem(messages.lastIndex)
     }
 
     // Отправлять ответ на сервисные номера ("Tinkoff", "900") часто бессмысленно
@@ -433,7 +551,8 @@ private fun ConversationScreen(
                 items(messages, key = { it.id }, contentType = { if (it.outgoing) "out" else "in" }) { m ->
                     Bubble(
                         m,
-                        selected = m.id in selected,
+                        selected = m.id in selected || m.id == flashId,
+                    highlightQuery = highlightQuery,
                         onClick = { if (selecting) toggle(m) },
                         onLongClick = { toggle(m) },
                         onCopyCode = { copyText(ctx, it) },
@@ -571,6 +690,7 @@ private fun deliveryName(status: Int) = when {
 private fun Bubble(
     m: SmsMessage,
     selected: Boolean,
+    highlightQuery: String,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onCopyCode: (String) -> Unit,
@@ -605,7 +725,11 @@ private fun Bubble(
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
-            Text(m.body, color = fg, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                highlight(m.body, highlightQuery, if (m.outgoing) fg.copy(alpha = 0.3f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                color = fg,
+                style = MaterialTheme.typography.bodyLarge
+            )
             Text(
                 DateFormat.getTimeFormat(ctx).format(m.dateMillis) +
                     when {

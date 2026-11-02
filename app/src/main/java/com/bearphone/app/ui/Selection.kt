@@ -32,6 +32,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.bearphone.app.ui.theme.CallRed
@@ -166,3 +168,62 @@ fun fullDateTime(ctx: Context, millis: Long): String {
     val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(millis)
     return "$d, $t"
 }
+
+// ---------------- поиск ----------------
+
+/** Подвкладки + кнопка-лупа справа. */
+@Composable
+fun TabsWithSearch(
+    titles: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    onSearch: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) { SubTabs(titles, selected, onSelect) }
+        IconButton(onClick = onSearch) { Icon(androidx.compose.material.icons.Icons.Filled.Search, "Поиск") }
+    }
+}
+
+/** Строка поиска: сразу ставит фокус и открывает клавиатуру; ✕ закрывает поиск. */
+@Composable
+fun SearchField(query: String, onQuery: (String) -> Unit, placeholder: String, onClose: () -> Unit) {
+    val focus = androidx.compose.runtime.remember { androidx.compose.ui.focus.FocusRequester() }
+    androidx.compose.runtime.LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
+    androidx.activity.compose.BackHandler(onBack = onClose)
+    androidx.compose.material3.OutlinedTextField(
+        value = query,
+        onValueChange = onQuery,
+        placeholder = { Text(placeholder) },
+        leadingIcon = { Icon(androidx.compose.material.icons.Icons.Filled.Search, null) },
+        trailingIcon = { IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Закрыть поиск") } },
+        singleLine = true,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .focusRequester(focus)
+    )
+}
+
+/** Подсветка всех вхождений [query] в тексте (без учёта регистра, кириллица тоже). */
+fun highlight(text: String, query: String, color: androidx.compose.ui.graphics.Color): androidx.compose.ui.text.AnnotatedString {
+    val q = query.trim()
+    if (q.isEmpty()) return androidx.compose.ui.text.AnnotatedString(text)
+    return androidx.compose.ui.text.buildAnnotatedString {
+        var i = 0
+        while (i < text.length) {
+            val hit = text.indexOf(q, i, ignoreCase = true)
+            if (hit < 0) { append(text.substring(i)); break }
+            append(text.substring(i, hit))
+            withStyle(androidx.compose.ui.text.SpanStyle(background = color, fontWeight = FontWeight.Bold)) {
+                append(text.substring(hit, hit + q.length))
+            }
+            i = hit + q.length
+        }
+    }
+}
+
+/** Цифры запроса, если он похож на номер ("912 34" -> "91234"), иначе пусто. */
+fun queryDigits(query: String): String =
+    if (query.any { it.isLetter() }) "" else query.filter { it.isDigit() }

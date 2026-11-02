@@ -146,8 +146,21 @@ fun RecentsScreen(
     val block by BlockStore.state.collectAsState()
 
     var sub by rememberSaveable { mutableIntStateOf(0) }
-    val visible = remember(entries, block, sub) {
-        if (sub == 0) entries.filterNot { isBlocked(it, block) } else blockedEntries(entries, block)
+    // ---- поиск: по имени, номеру (цифры в любом формате), региону ----
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val visible = remember(entries, block, sub, query) {
+        val base = if (sub == 0) entries.filterNot { isBlocked(it, block) } else blockedEntries(entries, block)
+        val q = query.trim()
+        if (q.isEmpty()) base else {
+            val digits = queryDigits(q)
+            base.filter { e ->
+                (e.name?.contains(q, ignoreCase = true) == true) ||
+                    (e.geocoded?.contains(q, ignoreCase = true) == true) ||
+                    (digits.isNotEmpty() && e.number.filter(Char::isDigit).contains(digits)) ||
+                    e.number.contains(q)
+            }
+        }
     }
     val rows = remember(visible) { buildRows(visible) }
 
@@ -178,11 +191,24 @@ fun RecentsScreen(
                 onDelete = { confirmDelete = true },
             )
         } else {
-            SubTabs(listOf("Вызовы", "Заблокированные"), sub) { sub = it; selected = emptySet() }
+            TabsWithSearch(
+                listOf("Вызовы", "Заблокированные"), sub,
+                onSelect = { sub = it; selected = emptySet() },
+                onSearch = { searching = !searching; if (!searching) query = "" },
+            )
+            if (searching) {
+                SearchField(query, { query = it }, "Имя, номер или регион") { searching = false; query = "" }
+            }
         }
 
         if (rows.isEmpty()) {
-            EmptyState(if (sub == 0) "Журнал пуст" else "Заблокированных вызовов нет")
+            EmptyState(
+                when {
+                    query.isNotBlank() -> "Ничего не найдено"
+                    sub == 0 -> "Журнал пуст"
+                    else -> "Заблокированных вызовов нет"
+                }
+            )
             return@Column
         }
 
@@ -225,7 +251,7 @@ fun RecentsScreen(
                         Spacer(Modifier.width(16.dp))
                         Column(Modifier.weight(1f)) {
                             Text(
-                                row.title,
+                                highlight(row.title, query, primary.copy(alpha = 0.3f)),
                                 style = MaterialTheme.typography.bodyLarge,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,

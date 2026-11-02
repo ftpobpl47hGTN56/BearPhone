@@ -199,6 +199,39 @@ object SmsRepository {
         deleted
     }
 
+    data class SearchHit(val id: Long, val threadId: Long, val address: String, val body: String, val dateMillis: Long, val outgoing: Boolean)
+
+    /**
+     * Поиск по тексту ВСЕХ SMS. Фильтруем в Kotlin, а не через SQL LIKE:
+     * LIKE в SQLite не умеет без учёта регистра для кириллицы ("Код" ≠ "код").
+     */
+    suspend fun search(ctx: Context, query: String, limit: Int = 300): List<SearchHit> = withContext(Dispatchers.IO) {
+        val q = query.trim()
+        if (q.length < 2 || !canRead(ctx)) return@withContext emptyList()
+        val out = ArrayList<SearchHit>()
+        try {
+            ctx.contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                arrayOf(Telephony.Sms._ID, Telephony.Sms.THREAD_ID, Telephony.Sms.ADDRESS, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE),
+                null, null, Telephony.Sms.DATE + " DESC"
+            )?.use { c ->
+                var n = 0
+                while (c.moveToNext() && n++ < SCAN_LIMIT && out.size < limit) {
+                    val body = c.getString(3) ?: continue
+                    if (!body.contains(q, ignoreCase = true)) continue
+                    val id = c.getLong(0)
+                    if (HiddenSmsStore.isMessageHidden(id)) continue
+                    out += SearchHit(
+                        id = id, threadId = c.getLong(1), address = c.getString(2).orEmpty(),
+                        body = body, dateMillis = c.getLong(4),
+                        outgoing = c.getInt(5) != Telephony.Sms.MESSAGE_TYPE_INBOX,
+                    )
+                }
+            }
+        } catch (e: Exception) { }
+        out
+    }
+
     /** Найти диалог по номеру (для "Написать SMS" из журнала и нового сообщения). */
     fun findThread(threads: List<SmsThread>, address: String): SmsThread? {
         val key = com.bearphone.app.block.NumberMatcher.key(address)
