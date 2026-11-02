@@ -42,6 +42,10 @@ data class BearStyle(
     val shadow: Dp,
     val shadowColor: Color,
     val isDark: Boolean,
+    /** Фон навбара и подвкладок */
+    val tabColor: Color = Color.Unspecified,
+    /** Текст/иконки на вкладках (контрастный к tabColor) */
+    val onTabColor: Color = Color.Unspecified,
 ) {
     val borderStroke: BorderStroke? get() = if (border > 0.dp) BorderStroke(border, borderColor) else null
 }
@@ -116,7 +120,7 @@ fun BearPhoneTheme(content: @Composable () -> Unit) {
     val dark = palette.background.luminance() < 0.4f
     val density = LocalDensity.current
 
-    val style = remember(settings, density) {
+    val style = remember(settings, density, scheme) {
         BearStyle(
             // "3 px" — именно физические пиксели, как просили
             border = with(density) { settings.borderPx.toFloat().toDp() },
@@ -125,6 +129,10 @@ fun BearPhoneTheme(content: @Composable () -> Unit) {
             // В тёмных темах тень окрашена акцентом — получается мягкое свечение
             shadowColor = if (dark) palette.accent else Color.Black,
             isDark = dark,
+            tabColor = settings.tabColor ?: scheme.surfaceContainer,
+            onTabColor = (settings.tabColor ?: scheme.surfaceContainer).let {
+                if (it.luminance() > 0.5f) Color(0xFF14172B) else Color(0xFFE8EBFF)
+            },
         )
     }
 

@@ -141,7 +141,8 @@ class MainActivity : ComponentActivity() {
 
                 Scaffold(
                     bottomBar = {
-                        NavigationBar {
+                        val st = com.bearphone.app.ui.theme.LocalBearStyle.current
+                        NavigationBar(containerColor = st.tabColor, contentColor = st.onTabColor) {
                             NavTab(TAB_KEYPAD, Icons.Filled.Dialpad, "Набор")
                             NavTab(TAB_RECENTS, Icons.Filled.History, "Вызовы")
                             NavTab(TAB_MESSAGES, Icons.AutoMirrored.Filled.Message, "SMS", smsThreads.sumOf { it.unread })
@@ -218,6 +219,13 @@ class MainActivity : ComponentActivity() {
                 } else Icon(icon, null)
             },
             label = { Text(label, maxLines = 1) },
+            colors = androidx.compose.material3.NavigationBarItemDefaults.colors(
+                selectedIconColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                selectedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                indicatorColor = androidx.compose.material3.MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                unselectedIconColor = com.bearphone.app.ui.theme.LocalBearStyle.current.onTabColor.copy(alpha = 0.7f),
+                unselectedTextColor = com.bearphone.app.ui.theme.LocalBearStyle.current.onTabColor.copy(alpha = 0.7f),
+            ),
         )
     }
 
@@ -240,6 +248,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Звонков нет, а уведомление "Идёт разговор" осталось (сервис убили) — снимаем
+        if (com.bearphone.app.call.CallManager.calls.value.isEmpty()) {
+            com.bearphone.app.call.CallNotification.cancelCall(this)
+        }
         refreshStatus() // внутри reloadTick++ — после звонка журнал обновится
     }
 

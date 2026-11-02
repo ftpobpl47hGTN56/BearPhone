@@ -64,6 +64,11 @@ import androidx.compose.ui.unit.dp
 import com.bearphone.app.block.BlockStore
 import com.bearphone.app.block.NumberMatcher
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Vibration
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -122,10 +127,10 @@ fun MessagesScreen(
     // Номер -> имя из контактов (один раз на список контактов, без запросов к базе на каждую строку)
     val names = remember(contacts) {
         HashMap<String, String>().apply {
-            contacts.forEach { c -> c.numbers.forEach { n -> put(NumberMatcher.key(n), c.name) } }
+            contacts.forEach { c -> c.numbers.forEach { n -> put(NumberMatcher.senderKey(n), c.name) } }
         }
     }
-    fun nameOf(address: String): String? = names[NumberMatcher.key(address)]
+    fun nameOf(address: String): String? = names[NumberMatcher.senderKey(address)]
 
     // Сообщение, к которому прыгнуть из поиска (id + запрос для подсветки)
     var focus by remember { mutableStateOf<Pair<Long, String>?>(null) }
@@ -315,6 +320,7 @@ private fun ThreadList(
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val primary = MaterialTheme.colorScheme.primary
     val selBg = primary.copy(alpha = 0.14f)
+    val mutes by com.bearphone.app.sms.SmsMuteStore.modes.collectAsState()
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
@@ -349,6 +355,10 @@ private fun ThreadList(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
                             )
+                            val mute = mutes[com.bearphone.app.block.NumberMatcher.senderKey(t.address)]
+                            if (mute != null) {
+                                Icon(muteIcon(mute), mute.title, tint = muted, modifier = Modifier.size(16.dp).padding(end = 2.dp))
+                            }
                             Text(relativeTime(t.dateMillis), style = MaterialTheme.typography.labelSmall, color = muted)
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -449,6 +459,39 @@ private fun snippetAround(body: String, query: String): String {
     return "…" + flat.substring(i - 30)
 }
 
+/** Колокольчик в шапке диалога: звук / только вибрация / без звука для этого отправителя. */
+@Composable
+private fun MuteButton(address: String) {
+    val modes by com.bearphone.app.sms.SmsMuteStore.modes.collectAsState()
+    val mode = modes[com.bearphone.app.block.NumberMatcher.senderKey(address)] ?: com.bearphone.app.sms.SmsMute.SOUND
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(
+                muteIcon(mode), "Уведомления: ${mode.title}",
+                tint = if (mode == com.bearphone.app.sms.SmsMute.SOUND) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.primary
+            )
+        }
+        androidx.compose.material3.DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            com.bearphone.app.sms.SmsMute.entries.forEach { m ->
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text(m.title) },
+                    leadingIcon = { Icon(muteIcon(m), null) },
+                    trailingIcon = { if (m == mode) Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.primary) },
+                    onClick = { com.bearphone.app.sms.SmsMuteStore.set(address, m); open = false },
+                )
+            }
+        }
+    }
+}
+
+private fun muteIcon(m: com.bearphone.app.sms.SmsMute) = when (m) {
+    com.bearphone.app.sms.SmsMute.SOUND -> Icons.Filled.NotificationsActive
+    com.bearphone.app.sms.SmsMute.VIBRATE -> Icons.Filled.Vibration
+    com.bearphone.app.sms.SmsMute.SILENT -> Icons.Filled.NotificationsOff
+}
+
 private const val DELETE_NOTE =
     "Android разрешает удалять SMS только приложению SMS по умолчанию. " +
         "Если система не даст удалить, BearPhone скроет сообщения у себя " +
@@ -480,9 +523,12 @@ private fun ConversationScreen(
     // Открыли диалог — снимаем уведомление и (если BearPhone — SMS по умолчанию) отмечаем прочитанным
     LaunchedEffect(thread?.threadId, thread?.unread) {
         com.bearphone.app.sms.SmsNotifier.cancel(ctx, address)
-        val t = thread ?: return@LaunchedEffect
-        if (t.unread > 0 && SmsRepository.isDefaultApp(ctx)) {
-            SmsRepository.markThreadRead(ctx, t.threadId)
+        if (!SmsRepository.isDefaultApp(ctx)) return@LaunchedEffect
+        // По thread_id и дополнительно по адресу: у части прошивок thread_id у старых SMS
+        // не совпадает, и счётчик "1" залипал
+        thread?.let { if (it.unread > 0) SmsRepository.markThreadRead(ctx, it.threadId) }
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            SmsRepository.markAddressRead(ctx, address)
         }
     }
 
@@ -544,6 +590,7 @@ private fun ConversationScreen(
                     Text(address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            MuteButton(address)
             if (canReply) {
                 IconButton(onClick = { onCall(address) }) {
                     Icon(Icons.Filled.Call, "Позвонить", tint = MaterialTheme.colorScheme.primary)
@@ -716,6 +763,12 @@ private fun Bubble(
     val code = remember(m.id) {
         if (!m.outgoing && CODE_HINT.containsMatchIn(m.body)) CODE.find(m.body)?.value else null
     }
+    val style = com.bearphone.app.ui.theme.LocalBearStyle.current
+    val bubbleShape = RoundedCornerShape(
+        topStart = 18.dp, topEnd = 18.dp,
+        bottomStart = if (m.outgoing) 18.dp else 4.dp,
+        bottomEnd = if (m.outgoing) 4.dp else 18.dp
+    )
 
     Column(
         Modifier
@@ -727,14 +780,18 @@ private fun Bubble(
         Column(
             Modifier
                 .widthIn(max = 300.dp)
-                .background(
-                    bg,
-                    RoundedCornerShape(
-                        topStart = 18.dp, topEnd = 18.dp,
-                        bottomStart = if (m.outgoing) 18.dp else 4.dp,
-                        bottomEnd = if (m.outgoing) 4.dp else 18.dp
-                    )
+                .background(bg, bubbleShape)
+                // Рамка той же толщины, что у кнопок (Настройки → Оформление), цвет — акцент.
+                // На своих (залитых акцентом) пузырях — светлее, иначе рамку не видно.
+                .then(
+                    if (style.border > 0.dp) Modifier.border(
+                        style.border,
+                        if (m.outgoing) androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.primary, androidx.compose.ui.graphics.Color.White, 0.45f)
+                        else MaterialTheme.colorScheme.primary,
+                        bubbleShape
+                    ) else Modifier
                 )
+                .clip(bubbleShape)
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {

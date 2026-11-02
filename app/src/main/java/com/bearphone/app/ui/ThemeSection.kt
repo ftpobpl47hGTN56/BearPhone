@@ -72,6 +72,40 @@ fun ThemeSection() {
             ColorEditor("Акцент", s.customAccent) { c -> ThemeStore.update { it.copy(customAccent = c) } }
         }
 
+        // ---- цвет вкладок (навбар + подвкладки) ----
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable {
+                    ThemeStore.update { it.copy(tabColor = if (it.tabColor == null) it.palette.accent.copy(alpha = 1f).let { a -> hsvColor(a.toHsv()[0], 0.45f, 0.30f) } else null) }
+                }
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Свой цвет вкладок", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Навбар внизу и подвкладки — чтобы не сливались с фоном",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(
+                checked = s.tabColor != null,
+                onCheckedChange = { on ->
+                    ThemeStore.update {
+                        it.copy(tabColor = if (on) hsvColor(it.palette.accent.toHsv()[0], 0.45f, 0.30f) else null)
+                    }
+                }
+            )
+        }
+        s.tabColor?.let { tc ->
+            // key: при включении редактор берёт стартовый цвет заново
+            androidx.compose.runtime.key(s.paletteId) {
+                ColorEditor("Вкладки", tc) { c -> ThemeStore.update { it.copy(tabColor = c) } }
+            }
+        }
+
         // ---- рамка и тень ----
         Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             Text(

@@ -33,6 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -86,9 +87,20 @@ fun SelectionBar(
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 fun SubTabs(titles: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-    SecondaryTabRow(selectedTabIndex = selected) {
+    val st = com.bearphone.app.ui.theme.LocalBearStyle.current
+    SecondaryTabRow(
+        selectedTabIndex = selected,
+        containerColor = st.tabColor,
+        contentColor = MaterialTheme.colorScheme.primary,
+    ) {
         titles.forEachIndexed { i, t ->
-            Tab(selected = selected == i, onClick = { onSelect(i) }, text = { Text(t, maxLines = 1) })
+            Tab(
+                selected = selected == i,
+                onClick = { onSelect(i) },
+                text = { Text(t, maxLines = 1) },
+                selectedContentColor = MaterialTheme.colorScheme.primary,
+                unselectedContentColor = st.onTabColor.copy(alpha = 0.75f),
+            )
         }
     }
 }
@@ -180,9 +192,13 @@ fun TabsWithSearch(
     onSelect: (Int) -> Unit,
     onSearch: () -> Unit,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    val st = com.bearphone.app.ui.theme.LocalBearStyle.current
+    Row(
+        Modifier.background(st.tabColor),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Column(Modifier.weight(1f)) { SubTabs(titles, selected, onSelect) }
-        IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Поиск") }
+        IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Поиск", tint = st.onTabColor) }
     }
 }
 

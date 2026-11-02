@@ -12,6 +12,7 @@ class BearPhoneApp : Application() {
         ThemeStore.init(this)
         BlockStore.init(this)
         HiddenSmsStore.init(this)
+        com.bearphone.app.sms.SmsMuteStore.init(this)
         NotificationChannels.ensure(this)
     }
 }

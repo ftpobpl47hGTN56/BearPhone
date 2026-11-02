@@ -26,6 +26,10 @@ object NotificationChannels {
     private const val MISSED_PREFIX = "missed_calls_v"
     private const val SMS_PREFIX = "sms_v"
 
+    /** SMS от диалогов в режиме "Только вибрация" / "Без звука". */
+    const val SMS_VIBRATE = "sms_vibrate"
+    const val SMS_SILENT = "sms_silent"
+
     /** Входящие SMS — со звуком уведомлений из настроек BearPhone. */
     fun smsId(context: Context): String = SMS_PREFIX + SoundPrefs(context).notificationSoundVersion
 
@@ -84,6 +88,25 @@ object NotificationChannels {
                 enableVibration(true)
             }
             nm.createNotificationChannel(ch)
+        }
+
+        // 1д) SMS без звука: с вибрацией и совсем тихие (всё равно видны в шторке)
+        if (nm.getNotificationChannel(SMS_VIBRATE) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(SMS_VIBRATE, "SMS: только вибрация", NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(null, null)
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 250, 150, 250)
+                }
+            )
+        }
+        if (nm.getNotificationChannel(SMS_SILENT) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(SMS_SILENT, "SMS: без звука", NotificationManager.IMPORTANCE_LOW).apply {
+                    setSound(null, null)
+                    enableVibration(false)
+                }
+            )
         }
 
         // 2) Пропущенные — системный звук уведомления (или выбранный пользователем)

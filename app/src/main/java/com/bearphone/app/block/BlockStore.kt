@@ -136,6 +136,16 @@ object NumberMatcher {
     fun isMask(pattern: String) = pattern.any { it == '*' || it == '?' }
 
     /**
+     * Ключ отправителя для сопоставления с контактами и настройками диалога.
+     * Буквенные отправители ("MTS", "VTB", "Tele2") сравниваются по самому тексту —
+     * у них нет цифр, и по key() они все совпали бы с пустой строкой.
+     */
+    fun senderKey(raw: String): String {
+        val t = raw.trim()
+        return if (t.any { it.isLetter() } || key(t).isEmpty()) "a:" + t.lowercase() else key(t)
+    }
+
+    /**
      * Нормальная форма: только цифры (и * ? для масок), российские 8XXXXXXXXXX / XXXXXXXXXX -> 7XXXXXXXXXX.
      * Номер, начинавшийся с '+', не трогаем (+86..., +380... — иностранные).
      */

@@ -26,6 +26,8 @@ data class ThemeSettings(
     /** Толщина рамки кнопок в физических пикселях (0 — без рамки) */
     val borderPx: Int = 3,
     val shadow: Boolean = true,
+    /** Цвет навбара и подвкладок. null — автоматически (чуть светлее/темнее фона). */
+    val tabColor: Color? = null,
 ) {
     val palette: BearPalette
         get() = Presets.all.firstOrNull { it.id == paletteId }
@@ -70,6 +72,7 @@ object ThemeStore {
             customAccent = Color(p.getInt(K_ACCENT, d.customAccent.toArgb())),
             borderPx = p.getInt(K_BORDER, d.borderPx),
             shadow = p.getBoolean(K_SHADOW, d.shadow),
+            tabColor = if (p.contains(K_TAB)) Color(p.getInt(K_TAB, 0)) else null,
         )
     }
 
@@ -82,6 +85,10 @@ object ThemeStore {
             ?.putInt(K_ACCENT, s.customAccent.toArgb())
             ?.putInt(K_BORDER, s.borderPx)
             ?.putBoolean(K_SHADOW, s.shadow)
+            ?.apply {
+                val tab = s.tabColor
+                if (tab == null) remove(K_TAB) else putInt(K_TAB, tab.toArgb())
+            }
             ?.apply()
     }
 
@@ -90,6 +97,7 @@ object ThemeStore {
     private const val K_ACCENT = "custom_accent"
     private const val K_BORDER = "border_px"
     private const val K_SHADOW = "shadow"
+    private const val K_TAB = "tab_color"
 }
 
 // ---------------- цветовая математика (HSV) ----------------

@@ -35,7 +35,7 @@ object SmsNotifier {
         if (CODE_HINT.containsMatchIn(body)) CODE.find(body)?.value else null
 
     fun notificationId(address: String): Int =
-        3000 + (NumberMatcher.key(address).ifEmpty { address }.hashCode() and 0xFFFF)
+        3000 + (NumberMatcher.senderKey(address).hashCode() and 0xFFFF)
 
     private fun canPost(ctx: Context) = Build.VERSION.SDK_INT < 33 ||
         ContextCompat.checkSelfPermission(ctx, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
@@ -60,7 +60,13 @@ object SmsNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val b = NotificationCompat.Builder(ctx, NotificationChannels.smsId(ctx))
+        SmsMuteStore.init(ctx)
+        val channel = when (SmsMuteStore.modeFor(address)) {
+            SmsMute.SOUND -> NotificationChannels.smsId(ctx)
+            SmsMute.VIBRATE -> NotificationChannels.SMS_VIBRATE
+            SmsMute.SILENT -> NotificationChannels.SMS_SILENT
+        }
+        val b = NotificationCompat.Builder(ctx, channel)
             .setSmallIcon(R.drawable.ic_stat_sms)
             .setStyle(style)
             .setContentTitle(name)
