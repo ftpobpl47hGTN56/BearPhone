@@ -78,7 +78,9 @@ object SmsRepository {
                     val type = c.getInt(4)
                     // Диалог скрыт целиком (до прихода нового сообщения) — пропускаем
                     if (HiddenSmsStore.isThreadHidden(tid, c.getLong(3))) continue
-                    if (type == Telephony.Sms.MESSAGE_TYPE_INBOX && c.getInt(5) == 0) {
+                    if (type == Telephony.Sms.MESSAGE_TYPE_INBOX && c.getInt(5) == 0 &&
+                        !SmsReadStore.isRead(tid, c.getLong(3))
+                    ) {
                         unread[tid] = (unread[tid] ?: 0) + 1
                     }
                     if (tid !in byThread) {
@@ -183,8 +185,44 @@ object SmsRepository {
 
     // ---------------- режим "SMS-приложение по умолчанию" ----------------
 
+    /**
+     * BearPhone — SMS-приложение по умолчанию? На Android 10+ спрашиваем RoleManager:
+     * getDefaultSmsPackage на некоторых прошивках (HyperOS) отдаёт устаревший ответ.
+     */
     fun isDefaultApp(ctx: Context): Boolean =
-        Telephony.Sms.getDefaultSmsPackage(ctx) == ctx.packageName
+        if (Build.VERSION.SDK_INT >= 29) {
+            ctx.getSystemService(android.app.role.RoleManager::class.java)
+                ?.isRoleHeld(android.app.role.RoleManager.ROLE_SMS) == true ||
+                Telephony.Sms.getDefaultSmsPackage(ctx) == ctx.packageName
+        } else Telephony.Sms.getDefaultSmsPackage(ctx) == ctx.packageName
+
+    /** Название приложения, которое сейчас главное для SMS (для подсказки в настройках). */
+    fun defaultAppLabel(ctx: Context): String? = try {
+        val pkg = Telephony.Sms.getDefaultSmsPackage(ctx) ?: return null
+        val pm = ctx.packageManager
+        pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
+    } catch (e: Exception) { null }
+
+    /** Отметить прочитанным диалог: и в системной базе (если можно), и у себя. */
+    suspend fun markRead(ctx: Context, thread: SmsThread) = withContext(Dispatchers.IO) {
+        SmsReadStore.markThread(thread.threadId)
+        markThreadRead(ctx, thread.threadId)
+        markAddressRead(ctx, thread.address)
+        com.bearphone.app.sms.SmsNotifier.cancel(ctx, thread.address)
+    }
+
+    /** "Прочитать всё". */
+    suspend fun markAllRead(ctx: Context, threads: List<SmsThread>) = withContext(Dispatchers.IO) {
+        SmsReadStore.markAll()
+        try {
+            ctx.contentResolver.update(
+                Telephony.Sms.CONTENT_URI,
+                android.content.ContentValues().apply { put(Telephony.Sms.READ, 1); put(Telephony.Sms.SEEN, 1) },
+                Telephony.Sms.READ + "=0", null
+            )
+        } catch (e: Exception) { }
+        threads.forEach { com.bearphone.app.sms.SmsNotifier.cancel(ctx, it.address) }
+    }
 
     private fun insertOutgoing(ctx: Context, address: String, text: String): android.net.Uri? = try {
         ctx.contentResolver.insert(

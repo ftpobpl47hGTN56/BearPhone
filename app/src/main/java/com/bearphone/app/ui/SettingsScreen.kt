@@ -91,6 +91,13 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium
                     )
                     if (!isDefaultSms) {
+                        com.bearphone.app.data.SmsRepository.defaultAppLabel(LocalContext.current)?.let { label ->
+                            Text(
+                                "Сейчас SMS принимает: $label",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         Spacer(Modifier.height(4.dp))
                         Text(
                             "Тогда BearPhone сам принимает SMS, показывает уведомления, отмечает прочитанные " +

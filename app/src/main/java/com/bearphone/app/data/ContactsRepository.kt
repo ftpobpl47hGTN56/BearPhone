@@ -57,6 +57,42 @@ object ContactsRepository {
         map.values.toList()
     }
 
+    data class ContactInfo(val id: Long, val lookupKey: String, val name: String, val numbers: List<String>)
+
+    /** Полная информация о контакте по номеру (для карточки). null — номера нет в контактах. */
+    suspend fun lookup(ctx: Context, number: String?): ContactInfo? = withContext(Dispatchers.IO) {
+        if (number.isNullOrBlank() || !granted(ctx)) return@withContext null
+        try {
+            val uri = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(number))
+            val (id, key, name) = ctx.contentResolver.query(
+                uri,
+                arrayOf(
+                    ContactsContract.PhoneLookup._ID,
+                    ContactsContract.PhoneLookup.LOOKUP_KEY,
+                    ContactsContract.PhoneLookup.DISPLAY_NAME,
+                ),
+                null, null, null
+            )?.use { c ->
+                if (c.moveToFirst()) Triple(c.getLong(0), c.getString(1).orEmpty(), c.getString(2).orEmpty()) else null
+            } ?: return@withContext null
+
+            val numbers = ArrayList<String>()
+            ctx.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
+                ContactsContract.CommonDataKinds.Phone.CONTACT_ID + "=?", arrayOf(id.toString()), null
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val n = c.getString(0)?.trim().orEmpty()
+                    if (n.isNotEmpty() && numbers.none { normalize(it) == normalize(n) }) numbers += n
+                }
+            }
+            ContactInfo(id, key, name, numbers.ifEmpty { listOf(number) })
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Имя по номеру (для входящего и журнала). null, если номера нет в контактах. */
     fun nameFor(ctx: Context, number: String?): String? {
         if (number.isNullOrBlank() || !granted(ctx)) return null

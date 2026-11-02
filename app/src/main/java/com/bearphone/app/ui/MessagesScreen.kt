@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import com.bearphone.app.block.BlockStore
 import com.bearphone.app.block.NumberMatcher
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Vibration
@@ -213,6 +214,9 @@ fun MessagesScreen(
                 sub,
                 onSelect = { sub = it; selected = emptySet() },
                 onSearch = { searching = !searching; if (!searching) query = "" },
+                onMarkAllRead = if (threads.any { it.unread > 0 }) {
+                    { scope.launch { SmsRepository.markAllRead(ctx, threads); onChanged() } }
+                } else null,
             )
             if (searching) {
                 SearchField(query, { query = it }, "Текст, имя или номер") { searching = false; query = "" }
@@ -268,6 +272,9 @@ fun MessagesScreen(
             },
             actions = buildList {
                 add(DetailAction("Открыть диалог") { onOpen(t.address) })
+                if (t.unread > 0) add(DetailAction("Отметить прочитанным") {
+                    scope.launch { SmsRepository.markRead(ctx, t); onChanged() }
+                })
                 val rule = BlockStore.ruleFor(t.address)
                 if (t.address.isNotBlank()) when {
                     rule == null -> add(DetailAction("Заблокировать отправителя", danger = true) {
@@ -523,12 +530,11 @@ private fun ConversationScreen(
     // Открыли диалог — снимаем уведомление и (если BearPhone — SMS по умолчанию) отмечаем прочитанным
     LaunchedEffect(thread?.threadId, thread?.unread) {
         com.bearphone.app.sms.SmsNotifier.cancel(ctx, address)
-        if (!SmsRepository.isDefaultApp(ctx)) return@LaunchedEffect
-        // По thread_id и дополнительно по адресу: у части прошивок thread_id у старых SMS
-        // не совпадает, и счётчик "1" залипал
-        thread?.let { if (it.unread > 0) SmsRepository.markThreadRead(ctx, it.threadId) }
-        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            SmsRepository.markAddressRead(ctx, address)
+        val t = thread ?: return@LaunchedEffect
+        if (t.unread > 0) {
+            // В системную базу (если разрешено) + у себя, чтобы счётчик гас в любом случае
+            SmsRepository.markRead(ctx, t)
+            onChanged()
         }
     }
 
@@ -588,6 +594,11 @@ private fun ConversationScreen(
                 Text(name ?: address, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (name != null) {
                     Text(address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if ((thread?.unread ?: 0) > 0) {
+                IconButton(onClick = { scope.launch { thread?.let { SmsRepository.markRead(ctx, it) }; onChanged() } }) {
+                    Icon(Icons.Filled.DoneAll, "Отметить прочитанным", tint = MaterialTheme.colorScheme.primary)
                 }
             }
             MuteButton(address)

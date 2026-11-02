@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -191,6 +192,8 @@ fun TabsWithSearch(
     selected: Int,
     onSelect: (Int) -> Unit,
     onSearch: () -> Unit,
+    /** Кнопка "Прочитать всё" (✓✓), null — не показывать */
+    onMarkAllRead: (() -> Unit)? = null,
 ) {
     val st = com.bearphone.app.ui.theme.LocalBearStyle.current
     Row(
@@ -198,6 +201,11 @@ fun TabsWithSearch(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) { SubTabs(titles, selected, onSelect) }
+        if (onMarkAllRead != null) {
+            IconButton(onClick = onMarkAllRead) {
+                Icon(androidx.compose.material.icons.Icons.Filled.DoneAll, "Прочитать всё", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
         IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Поиск", tint = st.onTabColor) }
     }
 }

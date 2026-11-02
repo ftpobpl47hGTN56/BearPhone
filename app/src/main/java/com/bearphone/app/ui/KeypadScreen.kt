@@ -25,6 +25,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import com.bearphone.app.block.BlockStore
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.offset
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.roundToInt
 import com.bearphone.app.block.NumberMatcher
 import com.bearphone.app.data.CallLogEntry
 import com.bearphone.app.ui.theme.CallRed
@@ -272,6 +277,7 @@ private fun DialPad(
 ) {
     val style = LocalBearStyle.current
     val shape = RoundedCornerShape(28.dp)
+    var dragY by remember { mutableFloatStateOf(0f) }
     Surface(
         shape = shape,
         color = MaterialTheme.colorScheme.surfaceContainer,
@@ -279,6 +285,20 @@ private fun DialPad(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+            // Свайп вниз по клавиатуре — спрятать (карточка едет за пальцем)
+            .offset { androidx.compose.ui.unit.IntOffset(0, dragY.roundToInt()) }
+            .pointerInput(Unit) {
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (dragY > 80.dp.toPx()) onHide()
+                        dragY = 0f
+                    },
+                    onDragCancel = { dragY = 0f },
+                ) { change, dy ->
+                    dragY = (dragY + dy).coerceAtLeast(0f)
+                    if (dragY > 0f) change.consume()
+                }
+            }
             .bearFrame(shape)
     ) {
         Column(Modifier.padding(bottom = 12.dp)) {

@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallMissed
 import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Icon
@@ -171,6 +172,19 @@ fun RecentsScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     BackHandler(enabled = selecting) { selected = emptySet() }
 
+    // ---- карточка контакта (открывается кнопкой → в строке) ----
+    var cardFor by rememberSaveable { mutableStateOf<String?>(null) }
+    cardFor?.let { n ->
+        ContactCardScreen(
+            number = n,
+            allCalls = entries,
+            onBack = { cardFor = null },
+            onCall = onCall,
+            onMessage = onMessage,
+        )
+        return
+    }
+
     fun toggle(r: RecentRow) {
         selected = if (r.key in selected) selected - r.key else selected + r.key
     }
@@ -272,6 +286,20 @@ fun RecentsScreen(
                             IconButton(onClick = { onCall(e.number) }) {
                                 Icon(Icons.Filled.Call, "Позвонить", tint = primary)
                             }
+                            // Круглая стрелка → карточка контакта
+                            androidx.compose.material3.FilledTonalIconButton(
+                                onClick = { cardFor = e.number },
+                                colors = androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                                    containerColor = primary.copy(alpha = 0.14f),
+                                    contentColor = primary,
+                                ),
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight, "Карточка контакта",
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
                     }
                 }
@@ -300,6 +328,7 @@ fun RecentsScreen(
             },
             actions = buildList {
                 if (e.number.isNotBlank()) {
+                    add(DetailAction("Карточка контакта") { cardFor = e.number })
                     add(DetailAction("Позвонить") { onCall(e.number) })
                     add(DetailAction("Написать SMS") { onMessage(e.number) })
                     add(DetailAction("Изменить перед вызовом") { onEditBeforeCall(e.number) })
