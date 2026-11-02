@@ -104,6 +104,16 @@ fun ContactCardScreen(
     var menuOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
     var deleteDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
 
+    val contactsLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { reloadInfo++ }
+    val block by BlockStore.state.collectAsState()
+
+    // null — ещё ищем; Unit-значение "нет в контактах" выражаем через found = false
+    val info by produceState<ContactsRepository.ContactInfo?>(null, number, reloadInfo) {
+        value = ContactsRepository.lookup(ctx, number)
+    }
+    val numbers = info?.numbers ?: listOf(number)
     /** Удалить контакт из системной книги (нужен WRITE_CONTACTS). */
     fun doDelete() {
         val i = info ?: return
@@ -129,16 +139,6 @@ fun ContactCardScreen(
     val writePerm = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { granted -> if (granted) doDelete() }
-    val contactsLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
-    ) { reloadInfo++ }
-    val block by BlockStore.state.collectAsState()
-
-    // null — ещё ищем; Unit-значение "нет в контактах" выражаем через found = false
-    val info by produceState<ContactsRepository.ContactInfo?>(null, number, reloadInfo) {
-        value = ContactsRepository.lookup(ctx, number)
-    }
-    val numbers = info?.numbers ?: listOf(number)
     val name = info?.name
     val keys = remember(numbers) { numbers.map { NumberMatcher.key(it) }.filter { it.isNotEmpty() }.toSet() }
 

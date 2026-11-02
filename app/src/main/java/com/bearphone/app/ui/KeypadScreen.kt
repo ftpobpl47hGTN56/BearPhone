@@ -278,7 +278,7 @@ fun KeypadScreen(
             ScrollJumpButtons(listState)
 
             // Клавиатура спрятана — кнопка вернуть её (место фиксированное, ничего не "едет")
-            AnimatedVisibility(
+            OverlayVisibility(
                 visible = !padVisible,
                 enter = fadeIn(androidx.compose.animation.core.tween(120)),
                 exit = fadeOut(androidx.compose.animation.core.tween(80)),
@@ -294,7 +294,7 @@ fun KeypadScreen(
             }
 
             // ---- клавиатура: карточка ПОВЕРХ списка (список не растягивается — нет скачков) ----
-            AnimatedVisibility(
+            OverlayVisibility(
                 visible = padVisible,
                 enter = slideInVertically { it } + fadeIn(),
                 exit = slideOutVertically { it } + fadeOut(),
@@ -617,3 +617,13 @@ private fun DialKey(digit: String, letters: String, onClick: () -> Unit, onLongC
         }
     }
 }
+
+/** AnimatedVisibility без привязки к Column/Row — для наложения внутри Box. */
+@Composable
+private fun OverlayVisibility(
+    visible: Boolean,
+    enter: androidx.compose.animation.EnterTransition,
+    exit: androidx.compose.animation.ExitTransition,
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.animation.AnimatedVisibilityScope.() -> Unit,
+) = AnimatedVisibility(visible = visible, modifier = modifier, enter = enter, exit = exit, content = content)
