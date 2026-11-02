@@ -92,6 +92,8 @@ fun MessagesScreen(
     onRequestPermissions: () -> Unit,
     /** Что-то удалили/скрыли — перечитать */
     onChanged: () -> Unit,
+    /** Текст для поля ввода (пришёл вместе с sms:-ссылкой) */
+    draft: String? = null,
 ) {
     if (!canRead) {
         Column(
@@ -139,6 +141,7 @@ fun MessagesScreen(
             onChanged = onChanged,
             focusId = focus?.first,
             highlightQuery = focus?.second.orEmpty(),
+            draft = draft,
         )
         return
     }
@@ -468,10 +471,20 @@ private fun ConversationScreen(
     onChanged: () -> Unit,
     focusId: Long? = null,
     highlightQuery: String = "",
+    draft: String? = null,
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    var text by rememberSaveable(address) { mutableStateOf("") }
+    var text by rememberSaveable(address) { mutableStateOf(draft.orEmpty()) }
+
+    // Открыли диалог — снимаем уведомление и (если BearPhone — SMS по умолчанию) отмечаем прочитанным
+    LaunchedEffect(thread?.threadId, thread?.unread) {
+        com.bearphone.app.sms.SmsNotifier.cancel(ctx, address)
+        val t = thread ?: return@LaunchedEffect
+        if (t.unread > 0 && SmsRepository.isDefaultApp(ctx)) {
+            SmsRepository.markThreadRead(ctx, t.threadId)
+        }
+    }
 
     // ---- выделение сообщений ----
     var selected by remember { mutableStateOf(emptySet<Long>()) }

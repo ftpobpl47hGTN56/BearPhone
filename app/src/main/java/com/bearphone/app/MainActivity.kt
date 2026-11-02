@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
 import com.bearphone.app.call.Dialer
+import com.bearphone.app.sms.SmsRole
 import com.bearphone.app.data.CallLogEntry
 import com.bearphone.app.data.CallLogRepository
 import com.bearphone.app.data.Contact
@@ -62,6 +63,9 @@ class MainActivity : ComponentActivity() {
     private var tab by mutableIntStateOf(TAB_KEYPAD)
     private var number by mutableStateOf("")
     private var isDefault by mutableStateOf(false)
+    private var isDefaultSms by mutableStateOf(false)
+    /** Текст, пришедший вместе с sms:-ссылкой ("sms:+7912...?body=Привет") */
+    private var smsDraft by mutableStateOf<String?>(null)
     private var missingPerms by mutableStateOf(false)
     private var contacts by mutableStateOf<List<Contact>>(emptyList())
     private var recents by mutableStateOf<List<CallLogEntry>>(emptyList())
@@ -91,6 +95,12 @@ class MainActivity : ComponentActivity() {
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
             refreshStatus()
+        }
+
+    private val smsRoleLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            refreshStatus()
+            smsTick++
         }
 
     private val roleLauncher =
@@ -164,7 +174,8 @@ class MainActivity : ComponentActivity() {
                                 reloadTick = smsTick,
                                 openAddress = openSms,
                                 onOpen = { openSms = it },
-                                onClose = { openSms = null },
+                                onClose = { openSms = null; smsDraft = null },
+                                draft = smsDraft,
                                 onCall = ::placeCall,
                                 onRequestPermissions = { permissionLauncher.launch(permissions) },
                                 onChanged = { smsTick++ },
@@ -176,6 +187,8 @@ class MainActivity : ComponentActivity() {
                             )
                             TAB_SETTINGS -> SettingsScreen(
                                 isDefaultDialer = isDefault,
+                                isDefaultSms = isDefaultSms,
+                                onRequestSms = { smsRoleLauncher.launch(SmsRole.requestIntent(this@MainActivity)) },
                                 missingPermissions = missingPerms,
                                 onRequestDefault = { roleLauncher.launch(Dialer.requestDefaultIntent(this@MainActivity)) },
                                 onRequestPermissions = { permissionLauncher.launch(permissions) },
@@ -243,6 +256,19 @@ class MainActivity : ComponentActivity() {
             tab = TAB_KEYPAD
         }
         intent.getIntExtra(EXTRA_TAB, -1).takeIf { it >= 0 }?.let { tab = it }
+
+        // sms:/smsto: из других приложений и тап по уведомлению SMS — открываем диалог
+        val smsAddress = intent.getStringExtra(EXTRA_SMS_ADDRESS)
+            ?: data?.takeIf { it.scheme in setOf("sms", "smsto", "mms", "mmsto") }
+                ?.schemeSpecificPart?.substringBefore('?')?.let(Uri::decode)?.substringBefore(',')
+        if (!smsAddress.isNullOrBlank()) {
+            openSms = smsAddress
+            tab = TAB_MESSAGES
+            smsDraft = intent.getStringExtra("sms_body")
+                ?: intent.getStringExtra(Intent.EXTRA_TEXT)
+                ?: data?.query?.substringAfter("body=", "")?.takeIf { it.isNotEmpty() }?.let(Uri::decode)
+            intent.removeExtra(EXTRA_SMS_ADDRESS)
+        }
     }
 
     private fun placeCall(n: String) {
@@ -253,6 +279,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshStatus() {
         isDefault = Dialer.isDefault(this)
+        isDefaultSms = SmsRole.isHeld(this)
         missingPerms = permissions.any { !granted(it) }
         reloadTick++
     }
@@ -268,6 +295,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_TAB = "bearphone.tab"
+        const val EXTRA_SMS_ADDRESS = "bearphone.sms_address"
         const val TAB_KEYPAD = 0
         const val TAB_RECENTS = 1
         const val TAB_MESSAGES = 2

@@ -24,6 +24,10 @@ object NotificationChannels {
     const val BLOCKED_CALLS = "blocked_calls"
 
     private const val MISSED_PREFIX = "missed_calls_v"
+    private const val SMS_PREFIX = "sms_v"
+
+    /** Входящие SMS — со звуком уведомлений из настроек BearPhone. */
+    fun smsId(context: Context): String = SMS_PREFIX + SoundPrefs(context).notificationSoundVersion
 
     /** Актуальный ID канала пропущенных звонков. Используйте его в NotificationCompat.Builder. */
     fun missedCallsId(context: Context): String =
@@ -58,6 +62,27 @@ object NotificationChannels {
             val ch = NotificationChannel(
                 BLOCKED_CALLS, "Заблокированные звонки", NotificationManager.IMPORTANCE_LOW
             ).apply { setSound(null, null) }
+            nm.createNotificationChannel(ch)
+        }
+
+        // 1г) Входящие SMS — высокий приоритет (всплывают), звук как у уведомлений
+        val smsCurrent = smsId(context)
+        nm.notificationChannels
+            .filter { it.id.startsWith(SMS_PREFIX) && it.id != smsCurrent }
+            .forEach { nm.deleteNotificationChannel(it.id) }
+        if (nm.getNotificationChannel(smsCurrent) == null) {
+            val ch = NotificationChannel(smsCurrent, "Входящие SMS", NotificationManager.IMPORTANCE_HIGH).apply {
+                val sound = prefs.resolveNotification()
+                if (sound == null) setSound(null, null)
+                else setSound(
+                    sound,
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                enableVibration(true)
+            }
             nm.createNotificationChannel(ch)
         }
 

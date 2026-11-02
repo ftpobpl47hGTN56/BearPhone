@@ -8,9 +8,12 @@
     <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
-    <!-- SMS: читаем общую базу и отправляем; приложением SMS по умолчанию НЕ становимся -->
+    <!-- SMS: BearPhone может быть SMS-приложением по умолчанию (без MMS) -->
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_MMS" />
+    <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
 
     <!-- Звук / экран входящего -->
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -57,6 +60,19 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="tel" />
             </intent-filter>
+
+            <!-- ОБЯЗАТЕЛЬНО для роли SMS: "написать SMS" из других приложений (sms:, smsto:) -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SENDTO" />
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
         </activity>
 
         <!-- Экран звонка: поверх экрана блокировки -->
@@ -95,6 +111,47 @@
                 <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
+
+        <!-- ===== SMS-приложение по умолчанию ===== -->
+        <!-- Приём SMS: Android шлёт SMS_DELIVER только приложению по умолчанию -->
+        <receiver
+            android:name=".sms.SmsDeliverReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_DELIVER" />
+            </intent-filter>
+        </receiver>
+
+        <!-- MMS не поддерживаем, но без этого приёмника Android не пускает в список SMS-приложений -->
+        <receiver
+            android:name=".sms.MmsDeliverReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
+                <data android:mimeType="application/vnd.wap.mms-message" />
+            </intent-filter>
+        </receiver>
+
+        <!-- "Ответить сообщением" на входящем звонке -->
+        <service
+            android:name=".sms.HeadlessSmsSendService"
+            android:exported="true"
+            android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.RESPOND_VIA_MESSAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
+        </service>
+
+        <!-- Кнопки уведомления SMS и результат отправки -->
+        <receiver android:name=".sms.SmsActionReceiver" android:exported="false" />
+        <receiver android:name=".sms.SmsSentReceiver" android:exported="false" />
 
         <!-- Кнопки "Ответить / Сбросить" в уведомлении -->
         <receiver

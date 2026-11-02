@@ -152,20 +152,97 @@ object SmsRepository {
                 if (Build.VERSION.SDK_INT >= 31) ctx.getSystemService(SmsManager::class.java)
                 else @Suppress("DEPRECATION") SmsManager.getDefault()
             val parts = sms.divideMessage(text)
+
+            // Главное SMS-приложение САМО пишет исходящие в базу (система за него этого не делает).
+            // Кладём в "Исходящие", а SmsSentReceiver переведёт в "Отправлено" или "Ошибка".
+            val msgUri = if (isDefaultApp(ctx)) insertOutgoing(ctx, address, text) else null
+
+            val sentIntent = Intent(ctx, com.bearphone.app.sms.SmsSentReceiver::class.java)
+                .setAction(com.bearphone.app.sms.SmsSentReceiver.ACTION_SENT)
+                .apply { msgUri?.let { data = it } }
+            // Уникальный requestCode, чтобы PendingIntent разных сообщений не склеивались
+            val code = (msgUri?.lastPathSegment?.toIntOrNull() ?: System.currentTimeMillis().toInt())
             val sent = PendingIntent.getBroadcast(
-                ctx, 0, Intent("com.bearphone.app.SMS_SENT").setPackage(ctx.packageName),
-                PendingIntent.FLAG_IMMUTABLE
+                ctx, code, sentIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
             if (parts.size == 1) {
                 sms.sendTextMessage(address, null, text, sent, null)
             } else {
-                sms.sendMultipartTextMessage(address, null, parts, ArrayList(parts.map { sent }), null)
+                // Отчёт нужен только по последней части
+                val intents = ArrayList<PendingIntent?>(parts.size)
+                repeat(parts.size - 1) { intents += null }
+                intents += sent
+                sms.sendMultipartTextMessage(address, null, parts, intents, null)
             }
             null
         } catch (e: Exception) {
             e.message ?: "Ошибка отправки"
         }
     }
+
+    // ---------------- режим "SMS-приложение по умолчанию" ----------------
+
+    fun isDefaultApp(ctx: Context): Boolean =
+        Telephony.Sms.getDefaultSmsPackage(ctx) == ctx.packageName
+
+    private fun insertOutgoing(ctx: Context, address: String, text: String): android.net.Uri? = try {
+        ctx.contentResolver.insert(
+            Telephony.Sms.CONTENT_URI,
+            android.content.ContentValues().apply {
+                put(Telephony.Sms.ADDRESS, address)
+                put(Telephony.Sms.BODY, text)
+                put(Telephony.Sms.DATE, System.currentTimeMillis())
+                put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_OUTBOX)
+                put(Telephony.Sms.READ, 1)
+                put(Telephony.Sms.SEEN, 1)
+            }
+        )
+    } catch (e: Exception) { null }
+
+    /** Сохранить входящее (вызывает приёмник). Возвращает Uri записи или null. */
+    fun insertIncoming(
+        ctx: Context, address: String, body: String, sentAt: Long,
+        serviceCenter: String?, subId: Int, read: Boolean,
+    ): android.net.Uri? = try {
+        ctx.contentResolver.insert(
+            Telephony.Sms.Inbox.CONTENT_URI,
+            android.content.ContentValues().apply {
+                put(Telephony.Sms.ADDRESS, address)
+                put(Telephony.Sms.BODY, body)
+                put(Telephony.Sms.DATE, System.currentTimeMillis())
+                put(Telephony.Sms.DATE_SENT, sentAt)
+                put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_INBOX)
+                put(Telephony.Sms.READ, if (read) 1 else 0)
+                put(Telephony.Sms.SEEN, if (read) 1 else 0)
+                serviceCenter?.let { put(Telephony.Sms.SERVICE_CENTER, it) }
+                if (subId >= 0) put(Telephony.Sms.SUBSCRIPTION_ID, subId)
+            }
+        )
+    } catch (e: Exception) { null }
+
+    /** Отметить диалог прочитанным (работает, только когда BearPhone — SMS по умолчанию). */
+    suspend fun markThreadRead(ctx: Context, threadId: Long) = withContext(Dispatchers.IO) {
+        try {
+            ctx.contentResolver.update(
+                Telephony.Sms.CONTENT_URI,
+                android.content.ContentValues().apply {
+                    put(Telephony.Sms.READ, 1); put(Telephony.Sms.SEEN, 1)
+                },
+                Telephony.Sms.THREAD_ID + "=? AND " + Telephony.Sms.READ + "=0",
+                arrayOf(threadId.toString())
+            )
+        } catch (e: Exception) { 0 }
+    }
+
+    fun markAddressRead(ctx: Context, address: String) = try {
+        ctx.contentResolver.update(
+            Telephony.Sms.CONTENT_URI,
+            android.content.ContentValues().apply { put(Telephony.Sms.READ, 1); put(Telephony.Sms.SEEN, 1) },
+            Telephony.Sms.ADDRESS + "=? AND " + Telephony.Sms.READ + "=0",
+            arrayOf(address)
+        )
+    } catch (e: Exception) { 0 }
 
     /**
      * Удалить сообщения. Android даёт удалять SMS ТОЛЬКО приложению SMS по умолчанию,

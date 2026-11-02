@@ -41,6 +41,8 @@ import com.bearphone.app.data.HiddenSmsStore
 @Composable
 fun SettingsScreen(
     isDefaultDialer: Boolean,
+    isDefaultSms: Boolean,
+    onRequestSms: () -> Unit,
     missingPermissions: Boolean,
     onRequestDefault: () -> Unit,
     onRequestPermissions: () -> Unit,
@@ -81,6 +83,23 @@ fun SettingsScreen(
                         )
                         Spacer(Modifier.height(12.dp))
                         Button(onClick = onRequestDefault, modifier = Modifier.bearFrame()) { Text("Сделать по умолчанию") }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        if (isDefaultSms) "BearPhone — SMS-приложение по умолчанию ✓"
+                        else "BearPhone не SMS-приложение по умолчанию",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (!isDefaultSms) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Тогда BearPhone сам принимает SMS, показывает уведомления, отмечает прочитанные " +
+                                "и по-настоящему удаляет. MMS не поддерживаются.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = onRequestSms, modifier = Modifier.bearFrame()) { Text("Сделать SMS по умолчанию") }
                     }
                     if (missingPermissions) {
                         Spacer(Modifier.height(12.dp))
