@@ -88,6 +88,7 @@ fun RecentsScreen(
     hasPermission: Boolean,
     onCall: (String) -> Unit,
     onEditBeforeCall: (String) -> Unit,
+    onMessage: (String) -> Unit,
     onDelete: (CallLogEntry) -> Unit,
 ) {
     if (!hasPermission) {
@@ -160,6 +161,9 @@ fun RecentsScreen(
                         Text(e.number, color = muted)
                         TextButton(onClick = { menuFor = null; onEditBeforeCall(e.number) }) {
                             Text("Изменить перед вызовом")
+                        }
+                        TextButton(onClick = { menuFor = null; onMessage(e.number) }) {
+                            Text("Написать SMS")
                         }
                         if (blockedBy == null) {
                             TextButton(onClick = { menuFor = null; BlockStore.addRule(e.number, e.name ?: "") }) {

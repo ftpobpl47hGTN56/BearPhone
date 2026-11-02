@@ -37,6 +37,16 @@ import com.bearphone.app.data.CallLogRepository
 import com.bearphone.app.data.Contact
 import com.bearphone.app.data.ContactsRepository
 import com.bearphone.app.ui.ContactsScreen
+import com.bearphone.app.ui.MessagesScreen
+import com.bearphone.app.data.SmsRepository
+import com.bearphone.app.data.SmsThread
+import android.database.ContentObserver
+import android.os.Handler
+import android.os.Looper
+import android.provider.Telephony
+import androidx.compose.material.icons.automirrored.filled.Message
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import com.bearphone.app.ui.KeypadScreen
 import com.bearphone.app.ui.RecentsScreen
 import com.bearphone.app.ui.SettingsScreen
@@ -57,6 +67,15 @@ class MainActivity : ComponentActivity() {
     private var recents by mutableStateOf<List<CallLogEntry>>(emptyList())
     /** Увеличиваем, чтобы перечитать журнал/контакты (после звонка, выдачи прав и т.п.) */
     private var reloadTick by mutableIntStateOf(0)
+    private var smsThreads by mutableStateOf<List<SmsThread>>(emptyList())
+    /** Номер открытого SMS-диалога (null — список диалогов) */
+    private var openSms by mutableStateOf<String?>(null)
+    /** Меняется при любом изменении базы SMS — экраны перечитывают данные */
+    private var smsTick by mutableIntStateOf(0)
+
+    private val smsObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
+        override fun onChange(selfChange: Boolean) { smsTick++ }
+    }
 
     private val permissions: Array<String> = buildList {
         add(Manifest.permission.CALL_PHONE)
@@ -64,6 +83,8 @@ class MainActivity : ComponentActivity() {
         add(Manifest.permission.READ_CALL_LOG)
         add(Manifest.permission.WRITE_CALL_LOG)
         add(Manifest.permission.READ_CONTACTS)
+        add(Manifest.permission.READ_SMS)
+        add(Manifest.permission.SEND_SMS)
         if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
     }.toTypedArray()
 
@@ -94,6 +115,11 @@ class MainActivity : ComponentActivity() {
             BearPhoneTheme {
                 val scope = rememberCoroutineScope()
 
+                LaunchedEffect(reloadTick, smsTick) {
+                    val t = SmsRepository.loadThreads(this@MainActivity)
+                    if (t != smsThreads) smsThreads = t
+                }
+
                 LaunchedEffect(reloadTick) {
                     // Присваиваем только если данные реально изменились — иначе список
                     // перерисовывается целиком при каждом возврате в приложение
@@ -107,7 +133,8 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         NavigationBar {
                             NavTab(TAB_KEYPAD, Icons.Filled.Dialpad, "Набор")
-                            NavTab(TAB_RECENTS, Icons.Filled.History, "Недавние")
+                            NavTab(TAB_RECENTS, Icons.Filled.History, "Вызовы")
+                            NavTab(TAB_MESSAGES, Icons.AutoMirrored.Filled.Message, "SMS", smsThreads.sumOf { it.unread })
                             NavTab(TAB_CONTACTS, Icons.Filled.Person, "Контакты")
                             NavTab(TAB_SETTINGS, Icons.Filled.Settings, "Настройки")
                         }
@@ -127,12 +154,24 @@ class MainActivity : ComponentActivity() {
                                 hasPermission = granted(Manifest.permission.READ_CALL_LOG),
                                 onCall = ::placeCall,
                                 onEditBeforeCall = { number = it; tab = TAB_KEYPAD },
+                                onMessage = { openSms = it; tab = TAB_MESSAGES },
                                 onDelete = { e ->
                                     scope.launch {
                                         CallLogRepository.delete(this@MainActivity, e.id)
                                         reloadTick++
                                     }
                                 },
+                            )
+                            TAB_MESSAGES -> MessagesScreen(
+                                threads = smsThreads,
+                                contacts = contacts,
+                                canRead = SmsRepository.canRead(this@MainActivity),
+                                reloadTick = smsTick,
+                                openAddress = openSms,
+                                onOpen = { openSms = it },
+                                onClose = { openSms = null },
+                                onCall = ::placeCall,
+                                onRequestPermissions = { permissionLauncher.launch(permissions) },
                             )
                             TAB_CONTACTS -> ContactsScreen(
                                 contacts = contacts,
@@ -154,18 +193,40 @@ class MainActivity : ComponentActivity() {
     }
 
     @androidx.compose.runtime.Composable
-    private fun androidx.compose.foundation.layout.RowScope.NavTab(id: Int, icon: ImageVector, label: String) {
+    private fun androidx.compose.foundation.layout.RowScope.NavTab(
+        id: Int, icon: ImageVector, label: String, badge: Int = 0,
+    ) {
         NavigationBarItem(
             selected = tab == id,
-            onClick = { tab = id },
-            icon = { Icon(icon, null) },
-            label = { Text(label) },
+            onClick = {
+                // Повторный тап по "SMS" возвращает к списку диалогов
+                if (id == TAB_MESSAGES && tab == TAB_MESSAGES) openSms = null
+                tab = id
+            },
+            icon = {
+                if (badge > 0) BadgedBox(badge = { Badge { Text(if (badge > 99) "99+" else badge.toString()) } }) {
+                    Icon(icon, null)
+                } else Icon(icon, null)
+            },
+            label = { Text(label, maxLines = 1) },
         )
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        try {
+            contentResolver.registerContentObserver(Telephony.Sms.CONTENT_URI, true, smsObserver)
+        } catch (e: SecurityException) { }
+    }
+
+    override fun onStop() {
+        contentResolver.unregisterContentObserver(smsObserver)
+        super.onStop()
     }
 
     override fun onResume() {
@@ -213,7 +274,8 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_TAB = "bearphone.tab"
         const val TAB_KEYPAD = 0
         const val TAB_RECENTS = 1
-        const val TAB_CONTACTS = 2
-        const val TAB_SETTINGS = 3
+        const val TAB_MESSAGES = 2
+        const val TAB_CONTACTS = 3
+        const val TAB_SETTINGS = 4
     }
 }

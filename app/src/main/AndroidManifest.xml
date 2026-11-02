@@ -8,6 +8,10 @@
     <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
+    <!-- SMS: читаем общую базу и отправляем; приложением SMS по умолчанию НЕ становимся -->
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
     <!-- Звук / экран входящего -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
