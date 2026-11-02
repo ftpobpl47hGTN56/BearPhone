@@ -19,15 +19,24 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
+      # release — с R8: быстрый и маленький, ставить на телефон его.
+      # debug — медленный (Compose без оптимизаций), только для отладки.
+      - name: Build release + debug APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease assembleDebug --stacktrace
 
-      - name: Rename APK
-        run: mv app/build/outputs/apk/debug/app-debug.apk BearPhone-${{ github.run_number }}-debug.apk
+      - name: Rename APKs
+        run: |
+          mv app/build/outputs/apk/release/app-release.apk BearPhone-${{ github.run_number }}.apk
+          mv app/build/outputs/apk/debug/app-debug.apk BearPhone-${{ github.run_number }}-debug.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: BearPhone-${{ github.run_number }}
-          path: BearPhone-*.apk
+          path: BearPhone-${{ github.run_number }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BearPhone-${{ github.run_number }}-debug
+          path: BearPhone-${{ github.run_number }}-debug.apk

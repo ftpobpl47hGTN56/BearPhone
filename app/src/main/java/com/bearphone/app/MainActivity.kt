@@ -95,8 +95,12 @@ class MainActivity : ComponentActivity() {
                 val scope = rememberCoroutineScope()
 
                 LaunchedEffect(reloadTick) {
-                    contacts = ContactsRepository.loadAll(this@MainActivity)
-                    recents = CallLogRepository.load(this@MainActivity)
+                    // Присваиваем только если данные реально изменились — иначе список
+                    // перерисовывается целиком при каждом возврате в приложение
+                    val c = ContactsRepository.loadAll(this@MainActivity)
+                    if (c != contacts) contacts = c
+                    val r = CallLogRepository.load(this@MainActivity)
+                    if (r != recents) recents = r
                 }
 
                 Scaffold(
@@ -166,8 +170,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        refreshStatus()
-        reloadTick++ // после звонка журнал обновится
+        refreshStatus() // внутри reloadTick++ — после звонка журнал обновится
     }
 
     /** tel:-ссылки и ACTION_DIAL открывают набор с номером; уведомление пропущенного — журнал. */

@@ -3,6 +3,7 @@ package com.bearphone.app.ui
 import android.media.RingtoneManager
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,35 +22,37 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.bearphone.app.sound.NotificationChannels
-import com.bearphone.app.sound.PickRingtoneContract
+import com.bearphone.app.sound.SoundLibrary
 import com.bearphone.app.sound.SoundPrefs
 
+/** Какой пикер сейчас открыт. */
+private enum class Picker { NONE, RINGTONE, NOTIFICATION }
+
 /**
- * Блок "Звуки" для экрана настроек (Jetpack Compose, Material 3).
- * Вставьте SoundSettingsSection() в Ваш SettingsScreen.
+ * Блок "Звуки" экрана настроек. Использует свой SoundPickerDialog
+ * (системный пикер на Xiaomi/HyperOS показывает далеко не все звуки).
  */
 @Composable
 fun SoundSettingsSection() {
     val context = LocalContext.current
     val prefs = remember { SoundPrefs(context) }
 
-    var ringtoneTitle by remember { mutableStateOf(titleOf(context, prefs.ringtoneForPicker())) }
-    var notifTitle by remember { mutableStateOf(titleOf(context, prefs.notificationForPicker())) }
+    var ringtoneTitle by remember { mutableStateOf(describe(context, prefs.ringtoneForPicker(), RingtoneManager.TYPE_RINGTONE)) }
+    var notifTitle by remember { mutableStateOf(describe(context, prefs.notificationForPicker(), RingtoneManager.TYPE_NOTIFICATION)) }
     var vibrate by remember { mutableStateOf(prefs.vibrateOnRing) }
+    var picker by remember { mutableStateOf(Picker.NONE) }
+    var pending by remember { mutableStateOf(Picker.NONE) }
 
-    val ringtoneLauncher = rememberLauncherForActivityResult(PickRingtoneContract()) { result ->
-        if (result is PickRingtoneContract.Result.Picked) {
-            prefs.saveRingtone(result.uri)
-            ringtoneTitle = titleOf(context, prefs.ringtoneForPicker())
-        }
+    // Перед первым открытием просим доступ к аудио — иначе видны только системные звуки.
+    // Отказ не мешает: пикер откроется в любом случае.
+    val audioPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        picker = pending
+        pending = Picker.NONE
     }
 
-    val notifLauncher = rememberLauncherForActivityResult(PickRingtoneContract()) { result ->
-        if (result is PickRingtoneContract.Result.Picked) {
-            prefs.saveNotification(result.uri)
-            NotificationChannels.ensure(context)   // пересоздать канал с новым звуком
-            notifTitle = titleOf(context, prefs.notificationForPicker())
-        }
+    fun open(p: Picker) {
+        if (SoundLibrary.hasAudioPermission(context)) picker = p
+        else { pending = p; audioPerm.launch(SoundLibrary.audioPermission) }
     }
 
     Column(Modifier.fillMaxWidth()) {
@@ -60,25 +63,8 @@ fun SoundSettingsSection() {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
         )
 
-        SettingRow("Рингтон", ringtoneTitle) {
-            ringtoneLauncher.launch(
-                PickRingtoneContract.Input(
-                    type = RingtoneManager.TYPE_RINGTONE,
-                    existing = prefs.ringtoneForPicker(),
-                    title = "Рингтон BearPhone"
-                )
-            )
-        }
-
-        SettingRow("Звук уведомлений", notifTitle) {
-            notifLauncher.launch(
-                PickRingtoneContract.Input(
-                    type = RingtoneManager.TYPE_NOTIFICATION,
-                    existing = prefs.notificationForPicker(),
-                    title = "Звук пропущенных"
-                )
-            )
-        }
+        SettingRow("Рингтон", ringtoneTitle) { open(Picker.RINGTONE) }
+        SettingRow("Звук уведомлений", notifTitle) { open(Picker.NOTIFICATION) }
 
         Row(
             Modifier
@@ -90,6 +76,33 @@ fun SoundSettingsSection() {
             Text("Вибрация при звонке", Modifier.weight(1f))
             Switch(checked = vibrate, onCheckedChange = { vibrate = it; prefs.vibrateOnRing = it })
         }
+    }
+
+    when (picker) {
+        Picker.RINGTONE -> SoundPickerDialog(
+            title = "Рингтон",
+            forNotification = false,
+            current = choiceOf(prefs.ringtoneForPicker(), RingtoneManager.TYPE_RINGTONE),
+            onDismiss = { picker = Picker.NONE },
+            onPick = { choice ->
+                prefs.saveRingtone(uriOf(choice, RingtoneManager.TYPE_RINGTONE))
+                ringtoneTitle = describe(context, prefs.ringtoneForPicker(), RingtoneManager.TYPE_RINGTONE)
+                picker = Picker.NONE
+            }
+        )
+        Picker.NOTIFICATION -> SoundPickerDialog(
+            title = "Звук уведомлений",
+            forNotification = true,
+            current = choiceOf(prefs.notificationForPicker(), RingtoneManager.TYPE_NOTIFICATION),
+            onDismiss = { picker = Picker.NONE },
+            onPick = { choice ->
+                prefs.saveNotification(uriOf(choice, RingtoneManager.TYPE_NOTIFICATION))
+                NotificationChannels.ensure(context) // пересоздать канал с новым звуком
+                notifTitle = describe(context, prefs.notificationForPicker(), RingtoneManager.TYPE_NOTIFICATION)
+                picker = Picker.NONE
+            }
+        )
+        Picker.NONE -> Unit
     }
 }
 
@@ -110,12 +123,22 @@ private fun SettingRow(title: String, subtitle: String, onClick: () -> Unit) {
     }
 }
 
-/** Человеческое название звука ("Atria", "По умолчанию", "Без звука"). */
-private fun titleOf(context: android.content.Context, uri: Uri?): String {
-    if (uri == null) return "Без звука"
-    return try {
-        RingtoneManager.getRingtone(context, uri)?.getTitle(context) ?: "Неизвестно"
-    } catch (e: Exception) {
-        "Неизвестно"
-    }
+/** Uri из SoundPrefs (для пикера) -> выбор в диалоге. */
+private fun choiceOf(uri: Uri?, type: Int): SoundChoice = when {
+    uri == null -> SoundChoice.Silent
+    uri == RingtoneManager.getDefaultUri(type) -> SoundChoice.SystemDefault
+    else -> SoundChoice.File(uri)
+}
+
+/** Выбор в диалоге -> Uri для SoundPrefs.save*() (там default Uri = "следовать системе"). */
+private fun uriOf(choice: SoundChoice, type: Int): Uri? = when (choice) {
+    SoundChoice.Silent -> null
+    SoundChoice.SystemDefault -> RingtoneManager.getDefaultUri(type)
+    is SoundChoice.File -> choice.uri
+}
+
+private fun describe(ctx: android.content.Context, uri: Uri?, type: Int): String = when {
+    uri == null -> "Без звука"
+    uri == RingtoneManager.getDefaultUri(type) -> "По умолчанию (${titleOf(ctx, uri).removePrefix("По умолчанию (").removeSuffix(")")})"
+    else -> titleOf(ctx, uri).removeSuffix(".ogg").removeSuffix(".mp3")
 }

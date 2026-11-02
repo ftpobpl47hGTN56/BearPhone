@@ -83,7 +83,9 @@ class CallRinger(context: Context) {
     // ---------------- звук ----------------
 
     private fun startSound(phoneNumber: String?) {
-        val uri = pickUri(phoneNumber) ?: return   // null = пользователь выбрал "Без звука"
+        val picked = pickUri(phoneNumber) ?: return   // null = пользователь выбрал "Без звука"
+        // Файл удалили / пропал доступ — лучше системный рингтон, чем тишина на входящем
+        val uri = if (isReadable(picked)) picked else Settings.System.DEFAULT_RINGTONE_URI
 
         val rt = RingtoneManager.getRingtone(ctx, uri)
             ?: RingtoneManager.getRingtone(ctx, Settings.System.DEFAULT_RINGTONE_URI)
@@ -109,6 +111,15 @@ class CallRinger(context: Context) {
             mainHandler.postDelayed(r, 500)
         }
         ringtone = rt
+    }
+
+    private fun isReadable(uri: Uri): Boolean {
+        if (uri.authority == "settings") return true // content://settings/system/ringtone — всегда ок
+        return try {
+            ctx.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun pickUri(phoneNumber: String?): Uri? {
