@@ -2,6 +2,8 @@ package com.bearphone.app.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -35,7 +37,16 @@ fun ContactsScreen(
     contacts: List<Contact>,
     hasPermission: Boolean,
     onCall: (String) -> Unit,
+    calls: List<com.bearphone.app.data.CallLogEntry> = emptyList(),
+    onMessage: (String) -> Unit = {},
+    onCallsChanged: () -> Unit = {},
 ) {
+    // ---- карточка контакта (кнопка → у каждого контакта) ----
+    var cardFor by rememberSaveable { mutableStateOf<String?>(null) }
+    cardFor?.let { n ->
+        ContactCardScreen(n, calls, onBack = { cardFor = null }, onCall = onCall, onMessage = onMessage, onChanged = onCallsChanged)
+        return
+    }
     if (!hasPermission) {
         EmptyState("Нет доступа к контактам.\nРазрешите его в настройках BearPhone.")
         return
@@ -84,7 +95,11 @@ fun ContactsScreen(
                                 )
                             },
                             trailingContent = {
-                                if (c.starred) Icon(Icons.Filled.Star, "Избранный", tint = MaterialTheme.colorScheme.secondary)
+                                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                    if (c.starred) Icon(Icons.Filled.Star, "Избранный", tint = MaterialTheme.colorScheme.secondary)
+                                    androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+                                    CardArrowButton { cardFor = c.numbers.first() }
+                                }
                             },
                             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                             modifier = Modifier.clickable {

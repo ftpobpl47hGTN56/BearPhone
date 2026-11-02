@@ -5,6 +5,15 @@ import android.provider.CallLog
 import android.provider.ContactsContract
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.SelectAll
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -73,13 +82,27 @@ fun ContactCardScreen(
     onBack: () -> Unit,
     onCall: (String) -> Unit,
     onMessage: (String) -> Unit,
+    /** Журнал изменился (удалили звонки) — перечитать */
+    onChanged: () -> Unit = {},
 ) {
-    BackHandler(onBack = onBack)
     val ctx = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+
+    // ---- выделение звонков в истории ----
+    var selecting by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    var selected by remember { androidx.compose.runtime.mutableStateOf(emptySet<Long>()) }
+    var confirm by remember { androidx.compose.runtime.mutableStateOf<String?>(null) } // "selected" | "all"
+    BackHandler { if (selecting) { selecting = false; selected = emptySet() } else onBack() }
+
+    // После редактирования/добавления в системных Контактах — перечитать контакт
+    var reloadInfo by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    val contactsLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { reloadInfo++ }
     val block by BlockStore.state.collectAsState()
 
     // null — ещё ищем; Unit-значение "нет в контактах" выражаем через found = false
-    val info by produceState<ContactsRepository.ContactInfo?>(null, number) {
+    val info by produceState<ContactsRepository.ContactInfo?>(null, number, reloadInfo) {
         value = ContactsRepository.lookup(ctx, number)
     }
     val numbers = info?.numbers ?: listOf(number)
@@ -155,6 +178,9 @@ fun ContactCardScreen(
                             CardAction(Icons.AutoMirrored.Filled.Message, "Написать SMS", MaterialTheme.colorScheme.primary) {
                                 onMessage(number)
                             }
+                            CardAction(Icons.Filled.ContentCopy, "Копировать номер", MaterialTheme.colorScheme.primary) {
+                                copyText(ctx, if (numbers.size > 1) numbers.joinToString("\n") else number)
+                            }
                             when {
                                 rule == null -> CardAction(Icons.Filled.Block, "Заблокировать", CallRed) {
                                     BlockStore.addRule(number, name ?: "")
@@ -166,7 +192,7 @@ fun ContactCardScreen(
                             }
                             CardAction(
                                 if (info != null) Icons.Filled.Edit else Icons.Filled.PersonAdd,
-                                if (info != null) "Редактировать" else "Добавить в контакты",
+                                if (info != null) "Редактировать контакт" else "Добавить в контакты",
                                 MaterialTheme.colorScheme.primary
                             ) {
                                 val i = info
@@ -178,11 +204,13 @@ fun ContactCardScreen(
                                         )
                                         .putExtra("finishActivityOnSaveCompleted", true)
                                 } else {
-                                    Intent(Intent.ACTION_INSERT_OR_EDIT)
-                                        .setType(ContactsContract.Contacts.CONTENT_ITEM_TYPE)
+                                    // Номера нет в контактах — сразу форма НОВОГО контакта с этим номером
+                                    Intent(ContactsContract.Intents.Insert.ACTION)
+                                        .setType(ContactsContract.RawContacts.CONTENT_TYPE)
                                         .putExtra(ContactsContract.Intents.Insert.PHONE, number)
+                                        .putExtra("finishActivityOnSaveCompleted", true)
                                 }
-                                try { ctx.startActivity(intent) } catch (e: Exception) { }
+                                try { contactsLauncher.launch(intent) } catch (e: Exception) { }
                             }
                         }
                     }
@@ -191,16 +219,70 @@ fun ContactCardScreen(
 
                 // ---- история ----
                 item {
-                    SectionTitle(
-                        if (history.isEmpty()) "Звонков не было"
-                        else "История звонков (${history.size}) · всего ${formatDuration(totalTalk)}"
+                    Row(Modifier.fillMaxWidth().padding(end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) {
+                            SectionTitle(
+                                when {
+                                    selecting -> "Выбрано: ${selected.size} из ${history.size}"
+                                    history.isEmpty() -> "Звонков не было"
+                                    else -> "История звонков (${history.size}) · всего ${formatDuration(totalTalk)}"
+                                }
+                            )
+                        }
+                        if (history.isNotEmpty()) {
+                            if (selecting) {
+                                IconButton(onClick = {
+                                    selected = if (selected.size == history.size) emptySet() else history.map { it.id }.toSet()
+                                }) { Icon(Icons.Filled.SelectAll, "Выделить всё", tint = MaterialTheme.colorScheme.primary) }
+                                IconButton(onClick = { if (selected.isNotEmpty()) confirm = "selected" }, enabled = selected.isNotEmpty()) {
+                                    Icon(Icons.Filled.Delete, "Удалить выбранные", tint = if (selected.isNotEmpty()) CallRed else Color.Gray)
+                                }
+                                IconButton(onClick = { selecting = false; selected = emptySet() }) {
+                                    Icon(Icons.Filled.Close, "Отменить выделение")
+                                }
+                            } else {
+                                IconButton(onClick = { selecting = true }) {
+                                    Icon(Icons.Filled.Checklist, "Выделить", tint = MaterialTheme.colorScheme.primary)
+                                }
+                                IconButton(onClick = { confirm = "all" }) {
+                                    Icon(Icons.Filled.DeleteSweep, "Очистить историю", tint = CallRed)
+                                }
+                            }
+                        }
+                    }
+                }
+                items(history, key = { it.id }) { e ->
+                    HistoryLine(
+                        e,
+                        selecting = selecting,
+                        selected = e.id in selected,
+                        onToggle = { selected = if (e.id in selected) selected - e.id else selected + e.id },
+                        onLongPress = { selecting = true; selected = selected + e.id },
                     )
                 }
-                items(history, key = { it.id }) { e -> HistoryLine(e) }
                 item { Spacer(Modifier.height(24.dp)) }
             }
             ScrollJumpButtons(listState)
         }
+    }
+
+    confirm?.let { what ->
+        val ids = if (what == "all") history.map { it.id } else selected.toList()
+        ConfirmDeleteDialog(
+            title = if (what == "all") "Очистить историю звонков?" else "Удалить выбранные звонки?",
+            text = "Будет удалено записей: ${ids.size}${if (name != null) " (контакт «$name»)" else ""}. Отменить нельзя.",
+            onDismiss = { confirm = null },
+            onConfirm = {
+                scope.launch {
+                    val n = com.bearphone.app.data.CallLogRepository.deleteMany(ctx, ids)
+                    if (n < ids.count { it > 0 }) {
+                        android.widget.Toast.makeText(ctx, "Удалено $n из ${ids.size}", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                    selecting = false; selected = emptySet()
+                    onChanged()
+                }
+            }
+        )
     }
 }
 
@@ -217,7 +299,14 @@ private fun CardAction(icon: ImageVector, description: String, color: Color, onC
 }
 
 @Composable
-private fun HistoryLine(e: CallLogEntry) {
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private fun HistoryLine(
+    e: CallLogEntry,
+    selecting: Boolean,
+    selected: Boolean,
+    onToggle: () -> Unit,
+    onLongPress: () -> Unit,
+) {
     val ctx = LocalContext.current
     val (icon, tint, label) = when (e.type) {
         CallLog.Calls.OUTGOING_TYPE -> Triple(Icons.AutoMirrored.Filled.CallMade, MaterialTheme.colorScheme.primary, "Исходящий")
@@ -234,7 +323,12 @@ private fun HistoryLine(e: CallLogEntry) {
             .padding(horizontal = 12.dp, vertical = 4.dp)
             // Каждый звонок — в своей рамке (толщина/цвет из Оформления)
             .then(if (style.border > 0.dp) Modifier.border(style.border, style.borderColor, shape) else Modifier)
-            .background(MaterialTheme.colorScheme.surfaceContainerLow, shape)
+            .background(
+                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                else MaterialTheme.colorScheme.surfaceContainerLow,
+                shape
+            )
+            .clip(shape).combinedClickable(onClick = { if (selecting) onToggle() }, onLongClick = onLongPress)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -255,3 +349,4 @@ private fun HistoryLine(e: CallLogEntry) {
         }
     }
 }
+

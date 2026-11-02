@@ -161,6 +161,7 @@ class MainActivity : ComponentActivity() {
                                 recents = recents,
                                 onCall = ::placeCall,
                                 onMessage = { openSms = it; tab = TAB_MESSAGES },
+                                onCallsChanged = { reloadTick++ },
                             )
                             TAB_RECENTS -> RecentsScreen(
                                 entries = recents,
@@ -183,11 +184,15 @@ class MainActivity : ComponentActivity() {
                                 onRequestPermissions = { permissionLauncher.launch(permissions) },
                                 onChanged = { smsTick++ },
                                 calls = recents,
+                                onCallsChanged = { reloadTick++ },
                             )
                             TAB_CONTACTS -> ContactsScreen(
                                 contacts = contacts,
                                 hasPermission = granted(Manifest.permission.READ_CONTACTS),
                                 onCall = ::placeCall,
+                                calls = recents,
+                                onMessage = { openSms = it; tab = TAB_MESSAGES },
+                                onCallsChanged = { reloadTick++ },
                             )
                             TAB_SETTINGS -> SettingsScreen(
                                 isDefaultDialer = isDefault,

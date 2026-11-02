@@ -102,6 +102,7 @@ fun MessagesScreen(
     draft: String? = null,
     /** Журнал вызовов — для карточки контакта из диалога */
     calls: List<com.bearphone.app.data.CallLogEntry> = emptyList(),
+    onCallsChanged: () -> Unit = {},
 ) {
     if (!canRead) {
         Column(
@@ -151,6 +152,7 @@ fun MessagesScreen(
             highlightQuery = focus?.second.orEmpty(),
             draft = draft,
             calls = calls,
+            onCallsChanged = onCallsChanged,
         )
         return
     }
@@ -526,6 +528,7 @@ private fun ConversationScreen(
     highlightQuery: String = "",
     draft: String? = null,
     calls: List<com.bearphone.app.data.CallLogEntry> = emptyList(),
+    onCallsChanged: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
 
@@ -538,6 +541,7 @@ private fun ConversationScreen(
             onBack = { cardOpen = false },
             onCall = onCall,
             onMessage = { cardOpen = false },
+            onChanged = onCallsChanged,
         )
         return
     }

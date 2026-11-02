@@ -115,6 +115,7 @@ fun KeypadScreen(
     recents: List<CallLogEntry>,
     onCall: (String) -> Unit,
     onMessage: (String) -> Unit,
+    onCallsChanged: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
     val block by BlockStore.state.collectAsState()
@@ -132,7 +133,7 @@ fun KeypadScreen(
     // ---- карточка контакта (кнопка → в истории) ----
     var cardFor by rememberSaveable { mutableStateOf<String?>(null) }
     cardFor?.let { n ->
-        ContactCardScreen(n, recents, onBack = { cardFor = null }, onCall = onCall, onMessage = onMessage)
+        ContactCardScreen(n, recents, onBack = { cardFor = null }, onCall = onCall, onMessage = onMessage, onChanged = onCallsChanged)
         return
     }
     // Начали листать историю — прячем клавиатуру, как в обычных звонилках

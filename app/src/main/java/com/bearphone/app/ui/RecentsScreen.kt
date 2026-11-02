@@ -181,6 +181,7 @@ fun RecentsScreen(
             onBack = { cardFor = null },
             onCall = onCall,
             onMessage = onMessage,
+            onChanged = onChanged,
         )
         return
     }
