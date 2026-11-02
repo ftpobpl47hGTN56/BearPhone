@@ -7,6 +7,8 @@
     <uses-permission android:name="android.permission.READ_CALL_LOG" />
     <uses-permission android:name="android.permission.WRITE_CALL_LOG" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Удаление контакта из карточки -->
+    <uses-permission android:name="android.permission.WRITE_CONTACTS" />
 
     <!-- SMS: BearPhone может быть SMS-приложением по умолчанию (без MMS) -->
     <uses-permission android:name="android.permission.READ_SMS" />

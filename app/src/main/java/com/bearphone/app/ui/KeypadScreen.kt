@@ -30,6 +30,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.input.pointer.pointerInput
 import kotlin.math.roundToInt
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.onSizeChanged
 import com.bearphone.app.block.NumberMatcher
@@ -131,6 +134,31 @@ fun KeypadScreen(
 
     // Номер пришёл снаружи (tel:-ссылка, «изменить перед вызовом») — показываем клавиатуру
     LaunchedEffect(number) { if (number.isNotEmpty()) padVisible = true }
+
+    // ---- поле номера: настоящее текстовое поле (курсор, выделение, копировать/вставить) ----
+    var field by remember { mutableStateOf(TextFieldValue(number, TextRange(number.length))) }
+    // Номер поменяли снаружи (tel:-ссылка, звонок, «изменить перед вызовом») — синхронизируем
+    LaunchedEffect(number) {
+        if (number != field.text) field = TextFieldValue(number, TextRange(number.length))
+    }
+    fun setField(v: TextFieldValue) { field = v; if (v.text != number) onNumberChange(v.text) }
+    /** Вставить в место курсора (или вместо выделенного). */
+    fun insert(str: String) {
+        val a = minOf(field.selection.start, field.selection.end)
+        val b = maxOf(field.selection.start, field.selection.end)
+        val t = field.text.replaceRange(a, b, str)
+        setField(TextFieldValue(t, TextRange(a + str.length)))
+    }
+    fun backspace() {
+        val a = minOf(field.selection.start, field.selection.end)
+        val b = maxOf(field.selection.start, field.selection.end)
+        when {
+            a != b -> setField(TextFieldValue(field.text.removeRange(a, b), TextRange(a)))
+            a > 0 -> setField(TextFieldValue(field.text.removeRange(a - 1, a), TextRange(a - 1)))
+        }
+    }
+    var padHeight by remember { mutableIntStateOf(0) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
 
     // ---- карточка контакта (кнопка → в истории) ----
     var cardFor by rememberSaveable { mutableStateOf<String?>(null) }
@@ -242,45 +270,51 @@ fun KeypadScreen(
                         }
                     }
                 }
-                // место под кнопку "показать клавиатуру"
-                item { Spacer(Modifier.height(88.dp)) }
+                // Место под клавиатуру (она лежит ПОВЕРХ списка) или под кнопку ⌨
+                item {
+                    Spacer(Modifier.height(if (padVisible) with(density) { padHeight.toDp() } + 8.dp else 88.dp))
+                }
             }
             ScrollJumpButtons(listState)
 
-            // Клавиатура спрятана — кнопка вернуть её
-            if (!padVisible) {
+            // Клавиатура спрятана — кнопка вернуть её (место фиксированное, ничего не "едет")
+            AnimatedVisibility(
+                visible = !padVisible,
+                enter = fadeIn(androidx.compose.animation.core.tween(120)),
+                exit = fadeOut(androidx.compose.animation.core.tween(80)),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
+            ) {
                 FloatingActionButton(
                     onClick = { padVisible = true },
                     containerColor = primary,
                     shape = RoundedCornerShape(18.dp),
                     elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 16.dp)
-                        .size(64.dp)
-                        .bearFrame(RoundedCornerShape(18.dp))
+                    modifier = Modifier.size(64.dp).bearFrame(RoundedCornerShape(18.dp))
                 ) { Icon(Icons.Filled.Dialpad, "Показать клавиатуру", Modifier.size(30.dp)) }
             }
-        }
 
-        // ---- клавиатура в скруглённой карточке с рамкой ----
-        AnimatedVisibility(
-            visible = padVisible,
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
-            DialPad(
-                number = number,
-                onNumberChange = onNumberChange,
-                onCall = { onCall(number) },
-                sims = sims,
-                onCallSim = { sim -> onCallSim(number, sim) },
-                onHide = { padVisible = false },
-                onKey = { digit ->
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onNumberChange(number + digit)
-                },
-            )
+            // ---- клавиатура: карточка ПОВЕРХ списка (список не растягивается — нет скачков) ----
+            AnimatedVisibility(
+                visible = padVisible,
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { if (it.height > 0) padHeight = it.height }
+            ) {
+                DialPad(
+                    field = field,
+                    onFieldChange = ::setField,
+                    onCall = { onCall(field.text) },
+                    sims = sims,
+                    onCallSim = { sim -> onCallSim(field.text, sim) },
+                    onHide = { padVisible = false },
+                    onKey = { digit ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        insert(digit)
+                    },
+                    onBackspace = ::backspace,
+                    onClear = { setField(TextFieldValue("")) },
+                )
+            }
         }
     }
 }
@@ -288,14 +322,17 @@ fun KeypadScreen(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DialPad(
-    number: String,
-    onNumberChange: (String) -> Unit,
+    field: TextFieldValue,
+    onFieldChange: (TextFieldValue) -> Unit,
     onCall: () -> Unit,
     sims: List<com.bearphone.app.call.SimAccount>,
     onCallSim: (com.bearphone.app.call.SimAccount) -> Unit,
     onHide: () -> Unit,
     onKey: (String) -> Unit,
+    onBackspace: () -> Unit,
+    onClear: () -> Unit,
 ) {
+    val number = field.text
     val style = LocalBearStyle.current
     val shape = RoundedCornerShape(28.dp)
     val onHideState = androidx.compose.runtime.rememberUpdatedState(onHide)
@@ -357,25 +394,40 @@ private fun DialPad(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Spacer(Modifier.width(48.dp))
-                Text(
-                    number,
-                    modifier = Modifier.weight(1f),
-                    textAlign = TextAlign.Center,
-                    fontSize = if (number.length > 13) 24.sp else 32.sp,
-                    fontWeight = FontWeight.Light,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                // Системную клавиатуру не показываем — вводим своими клавишами,
+                // но курсор, выделение, копировать/вставить/вырезать работают как в обычном поле
+                @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
+                androidx.compose.ui.platform.InterceptPlatformTextInput(
+                    interceptor = { _, _ -> kotlinx.coroutines.awaitCancellation() }
+                ) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = field,
+                        onValueChange = { v ->
+                            // Вставили "8 (912) 345-67-89" — оставляем только то, что можно набрать
+                            val clean = v.text.filter { it.isDigit() || it in "+*#,;" }
+                            onFieldChange(
+                                if (clean == v.text) v
+                                else TextFieldValue(clean, TextRange(clean.length))
+                            )
+                        },
+                        singleLine = true,
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = if (number.length > 13) 24.sp else 32.sp,
+                            fontWeight = FontWeight.Light,
+                            textAlign = TextAlign.Center,
+                        ),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
                     if (number.isNotEmpty()) {
                         Box(
                             Modifier
                                 .size(48.dp)
                                 .clip(CircleShape)
-                                .combinedClickable(
-                                    onClick = { onNumberChange(number.dropLast(1)) },
-                                    onLongClick = { onNumberChange("") }
-                                ),
+                                .combinedClickable(onClick = onBackspace, onLongClick = onClear),
                             contentAlignment = Alignment.Center
                         ) { Icon(Icons.AutoMirrored.Filled.Backspace, "Стереть") }
                     }
@@ -394,7 +446,7 @@ private fun DialPad(
                                 digit = digit,
                                 letters = letters,
                                 onClick = { onKey(digit) },
-                                onLongClick = if (digit == "0") ({ onNumberChange(number + "+") }) else null
+                                onLongClick = if (digit == "0") ({ onKey("+") }) else null
                             )
                         }
                     }

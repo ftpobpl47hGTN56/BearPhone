@@ -10,6 +10,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PersonRemove
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.SelectAll
@@ -98,6 +101,34 @@ fun ContactCardScreen(
     // После редактирования/добавления в системных Контактах — перечитать контакт
     var reloadInfo by remember { androidx.compose.runtime.mutableIntStateOf(0) }
     var simDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var menuOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var deleteDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
+
+    /** Удалить контакт из системной книги (нужен WRITE_CONTACTS). */
+    fun doDelete() {
+        val i = info ?: return
+        scope.launch {
+            val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    ctx.contentResolver.delete(ContactsContract.Contacts.getLookupUri(i.id, i.lookupKey), null, null) > 0
+                } catch (e: Exception) { false }
+            }
+            if (ok) {
+                android.widget.Toast.makeText(ctx, "Контакт «${i.name}» удалён", android.widget.Toast.LENGTH_SHORT).show()
+                onChanged()
+                reloadInfo++ // карточка станет "просто номером" с кнопкой 👤+
+            } else {
+                android.widget.Toast.makeText(
+                    ctx,
+                    if (i.onSim) "SIM-контакт можно удалить только в системных «Контактах»" else "Не удалось удалить контакт",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+    val writePerm = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) doDelete() }
     val contactsLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { reloadInfo++ }
@@ -180,9 +211,6 @@ fun ContactCardScreen(
                             CardAction(Icons.AutoMirrored.Filled.Message, "Написать SMS", MaterialTheme.colorScheme.primary) {
                                 onMessage(number)
                             }
-                            CardAction(Icons.Filled.ContentCopy, "Копировать номер", MaterialTheme.colorScheme.primary) {
-                                copyText(ctx, if (numbers.size > 1) numbers.joinToString("\n") else number)
-                            }
                             when {
                                 rule == null -> CardAction(Icons.Filled.Block, "Заблокировать", CallRed) {
                                     BlockStore.addRule(number, name ?: "")
@@ -217,6 +245,40 @@ fun ContactCardScreen(
                                         .putExtra("finishActivityOnSaveCompleted", true)
                                 }
                                 try { contactsLauncher.launch(intent) } catch (e: Exception) { }
+                            }
+                            // ⋮ — редкие действия, чтобы ряд не переполнялся
+                            Box {
+                                CardAction(Icons.Filled.MoreVert, "Ещё", MaterialTheme.colorScheme.primary) { menuOpen = true }
+                                androidx.compose.material3.DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = { Text(if (numbers.size > 1) "Копировать номера" else "Копировать номер") },
+                                        leadingIcon = { Icon(Icons.Filled.ContentCopy, null) },
+                                        onClick = {
+                                            menuOpen = false
+                                            copyText(ctx, if (numbers.size > 1) numbers.joinToString("\n") else number)
+                                        }
+                                    )
+                                    val i = info
+                                    if (i != null) {
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            text = { Text("Открыть в Контактах") },
+                                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, null) },
+                                            onClick = {
+                                                menuOpen = false
+                                                try {
+                                                    contactsLauncher.launch(
+                                                        Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.getLookupUri(i.id, i.lookupKey))
+                                                    )
+                                                } catch (e: Exception) { }
+                                            }
+                                        )
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            text = { Text("Удалить контакт", color = CallRed) },
+                                            leadingIcon = { Icon(Icons.Filled.PersonRemove, null, tint = CallRed) },
+                                            onClick = { menuOpen = false; deleteDialog = true }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -270,6 +332,19 @@ fun ContactCardScreen(
             }
             ScrollJumpButtons(listState)
         }
+    }
+
+    if (deleteDialog) {
+        ConfirmDeleteDialog(
+            title = "Удалить контакт?",
+            text = "«${info?.name ?: number}» будет удалён из контактов телефона. История звонков останется.",
+            onDismiss = { deleteDialog = false },
+            onConfirm = {
+                if (androidx.core.content.ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.WRITE_CONTACTS)
+                    == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) doDelete() else writePerm.launch(android.Manifest.permission.WRITE_CONTACTS)
+            }
+        )
     }
 
     // SIM-контакт: системный редактор его не меняет — предлагаем рабочие варианты
