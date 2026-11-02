@@ -18,6 +18,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.bearphone.app.ui.theme.bearFrame
 
 @Composable
 fun SettingsScreen(
@@ -34,7 +36,7 @@ fun SettingsScreen(
     ) {
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            modifier = Modifier.fillMaxWidth().padding(16.dp)
+            modifier = Modifier.fillMaxWidth().padding(16.dp).bearFrame(RoundedCornerShape(12.dp))
         ) {
             Column(Modifier.padding(16.dp)) {
                 Text(
@@ -50,21 +52,23 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Spacer(Modifier.height(12.dp))
-                    Button(onClick = onRequestDefault) { Text("Сделать по умолчанию") }
+                    Button(onClick = onRequestDefault, modifier = Modifier.bearFrame()) { Text("Сделать по умолчанию") }
                 }
                 if (missingPermissions) {
                     Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = onRequestPermissions) { Text("Выдать разрешения") }
+                    OutlinedButton(onClick = onRequestPermissions, modifier = Modifier.bearFrame()) { Text("Выдать разрешения") }
                 }
             }
         }
 
         SoundSettingsSection()
 
+        ThemeSection()
+
         Spacer(Modifier.height(8.dp))
         OutlinedButton(
             onClick = onOpenAppSettings,
-            modifier = Modifier.padding(horizontal = 16.dp)
+            modifier = Modifier.padding(horizontal = 16.dp).bearFrame()
         ) { Text("Системные настройки приложения") }
 
         Text(

@@ -28,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bearphone.app.data.Contact
-import com.bearphone.app.ui.theme.AuroraGreen
 
 /** Список контактов с поиском. Тап — звонок, если номеров несколько — выбор номера. */
 @Composable
@@ -83,7 +82,7 @@ fun ContactsScreen(
                             )
                         },
                         trailingContent = {
-                            if (c.starred) Icon(Icons.Filled.Star, "Избранный", tint = AuroraGreen)
+                            if (c.starred) Icon(Icons.Filled.Star, "Избранный", tint = MaterialTheme.colorScheme.secondary)
                         },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                         modifier = Modifier.clickable {

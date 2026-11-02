@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.bearphone.app.data.Contact
 import com.bearphone.app.data.ContactsRepository
 import com.bearphone.app.ui.theme.CallGreen
+import com.bearphone.app.ui.theme.bearFrame
 
 private val KEYS = listOf(
     "1" to "", "2" to "АБВГ ABC", "3" to "ДЕЖЗ DEF",
@@ -168,7 +170,9 @@ fun KeypadScreen(
                 containerColor = CallGreen,
                 contentColor = Color.White,
                 shape = CircleShape,
-                modifier = Modifier.size(68.dp)
+                // тень рисует bearFrame (её можно выключить в настройках)
+                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                modifier = Modifier.size(68.dp).bearFrame(CircleShape, Color.White.copy(alpha = 0.35f))
             ) {
                 Icon(Icons.Filled.Call, "Позвонить", Modifier.size(30.dp))
             }
@@ -184,6 +188,7 @@ private fun DialKey(digit: String, letters: String, onClick: () -> Unit, onLongC
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = Modifier
             .size(width = 84.dp, height = 64.dp)
+            .bearFrame(CircleShape)
             .clip(CircleShape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {

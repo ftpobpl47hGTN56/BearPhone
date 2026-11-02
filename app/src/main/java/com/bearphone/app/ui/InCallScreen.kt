@@ -46,11 +46,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bearphone.app.call.AudioUi
 import com.bearphone.app.call.CallUi
-import com.bearphone.app.ui.theme.AuroraGreen
-import com.bearphone.app.ui.theme.AuroraViolet
 import com.bearphone.app.ui.theme.CallGreen
 import com.bearphone.app.ui.theme.CallRed
-import com.bearphone.app.ui.theme.NightSky
+import com.bearphone.app.ui.theme.bearFrame
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.ui.graphics.lerp
 import kotlinx.coroutines.delay
 
 @Composable
@@ -66,6 +66,10 @@ fun InCallScreen(
     onDtmf: (Char) -> Unit,
 ) {
     val ringing = call.state == Call.STATE_RINGING
+    val bg = MaterialTheme.colorScheme.background
+    val fg = MaterialTheme.colorScheme.onBackground
+    val accent = MaterialTheme.colorScheme.primary
+    val accent2 = MaterialTheme.colorScheme.secondary
     var showPad by rememberSaveable { mutableStateOf(false) }
     var dtmf by rememberSaveable { mutableStateOf("") }
 
@@ -94,7 +98,7 @@ fun InCallScreen(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(Color(0xFF0B1B55), NightSky, NightSky, AuroraViolet.copy(alpha = 0.15f))
+                    listOf(lerp(bg, accent, 0.25f), bg, bg, lerp(bg, accent2, 0.12f))
                 )
             )
             .safeDrawingPadding()
@@ -110,14 +114,14 @@ fun InCallScreen(
                 name ?: call.number ?: "Скрытый номер",
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.White,
+                color = fg,
                 maxLines = 2
             )
             if (name != null && call.number != null) {
-                Text(call.number, color = Color.White.copy(alpha = 0.7f), fontSize = 16.sp)
+                Text(call.number, color = fg.copy(alpha = 0.7f), fontSize = 16.sp)
             }
             Spacer(Modifier.height(8.dp))
-            Text(status, color = AuroraGreen, fontSize = 18.sp)
+            Text(status, color = accent2, fontSize = 18.sp)
 
             Spacer(Modifier.weight(1f))
 
@@ -129,7 +133,7 @@ fun InCallScreen(
                 }
             } else {
                 if (showPad) {
-                    Text(dtmf, color = Color.White, fontSize = 26.sp, modifier = Modifier.padding(bottom = 8.dp))
+                    Text(dtmf, color = fg, fontSize = 26.sp, modifier = Modifier.padding(bottom = 8.dp))
                     DtmfPad { c -> dtmf += c; onDtmf(c) }
                     Spacer(Modifier.height(16.dp))
                 }
@@ -155,40 +159,45 @@ fun InCallScreen(
 
 @Composable
 private fun RoundAction(icon: ImageVector, label: String, color: Color, onClick: () -> Unit) {
+    val fg = MaterialTheme.colorScheme.onBackground
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FloatingActionButton(
             onClick = onClick,
             containerColor = color,
             contentColor = Color.White,
             shape = CircleShape,
-            modifier = Modifier.size(76.dp)
+            elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+            modifier = Modifier.size(76.dp).bearFrame(CircleShape, Color.White.copy(alpha = 0.35f))
         ) { Icon(icon, label, Modifier.size(34.dp)) }
         Spacer(Modifier.height(8.dp))
-        Text(label, color = Color.White.copy(alpha = 0.8f))
+        Text(label, color = fg.copy(alpha = 0.8f))
     }
 }
 
 @Composable
 private fun Toggle(icon: ImageVector, label: String, checked: Boolean, onClick: () -> Unit) {
+    val fg = MaterialTheme.colorScheme.onBackground
+    val bg = MaterialTheme.colorScheme.background
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         FilledIconToggleButton(
             checked = checked,
             onCheckedChange = { onClick() },
-            modifier = Modifier.size(60.dp),
+            modifier = Modifier.size(60.dp).bearFrame(CircleShape),
             colors = IconButtonDefaults.filledIconToggleButtonColors(
-                containerColor = Color.White.copy(alpha = 0.10f),
-                contentColor = Color.White,
-                checkedContainerColor = Color.White,
-                checkedContentColor = NightSky,
+                containerColor = fg.copy(alpha = 0.10f),
+                contentColor = fg,
+                checkedContainerColor = fg,
+                checkedContentColor = bg,
             )
         ) { Icon(icon, label) }
         Spacer(Modifier.height(6.dp))
-        Text(label, color = Color.White.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
+        Text(label, color = fg.copy(alpha = 0.7f), style = MaterialTheme.typography.labelMedium)
     }
 }
 
 @Composable
 private fun DtmfPad(onKey: (Char) -> Unit) {
+    val fg = MaterialTheme.colorScheme.onBackground
     val rows = listOf("123", "456", "789", "*0#")
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         rows.forEach { r ->
@@ -196,10 +205,11 @@ private fun DtmfPad(onKey: (Char) -> Unit) {
                 r.forEach { c ->
                     FloatingActionButton(
                         onClick = { onKey(c) },
-                        containerColor = Color.White.copy(alpha = 0.08f),
-                        contentColor = Color.White,
+                        containerColor = fg.copy(alpha = 0.08f),
+                        contentColor = fg,
                         shape = CircleShape,
-                        modifier = Modifier.size(56.dp)
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                        modifier = Modifier.size(56.dp).bearFrame(CircleShape)
                     ) { Text(c.toString(), fontSize = 22.sp) }
                 }
             }

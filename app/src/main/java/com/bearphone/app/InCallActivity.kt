@@ -28,7 +28,7 @@ class InCallActivity : ComponentActivity() {
         handleAnswer(intent)
 
         setContent {
-            BearPhoneTheme(dark = true) {
+            BearPhoneTheme {
                 val calls by CallManager.calls.collectAsState()
                 val audio by CallManager.audio.collectAsState()
 
