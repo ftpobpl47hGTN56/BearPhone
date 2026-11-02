@@ -141,71 +141,75 @@ fun SoundPickerDialog(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
                 )
 
-                LazyColumn(Modifier.weight(1f)) {
-                    if (query.isBlank()) {
-                        item(key = "default") {
-                            ChoiceRow("По умолчанию (системный)", selected == SoundChoice.SystemDefault) {
-                                select(SoundChoice.SystemDefault)
-                            }
-                        }
-                        item(key = "silent") {
-                            ChoiceRow("Без звука", selected == SoundChoice.Silent) {
-                                select(SoundChoice.Silent)
-                            }
-                        }
-                        if (!forNotification) {
-                            item(key = "file") {
-                                Row(
-                                    Modifier
-                                        .fillMaxWidth()
-                                        .clickable { openFile.launch(arrayOf("audio/*")) }
-                                        .padding(horizontal = 20.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Filled.FolderOpen, null, tint = MaterialTheme.colorScheme.primary)
-                                    Spacer(Modifier.width(16.dp))
-                                    Text("Выбрать файл…", color = MaterialTheme.colorScheme.primary)
+                val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+                androidx.compose.foundation.layout.Box(Modifier.weight(1f)) {
+                    LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
+                        if (query.isBlank()) {
+                            item(key = "default") {
+                                ChoiceRow("По умолчанию (системный)", selected == SoundChoice.SystemDefault) {
+                                    select(SoundChoice.SystemDefault)
                                 }
                             }
-                            val sel = selected
-                            if (sel is SoundChoice.File && items?.none { it.uri == sel.uri } == true) {
-                                item(key = "picked-file") {
-                                    ChoiceRow(titleOf(ctx, sel.uri), true) { select(sel) }
+                            item(key = "silent") {
+                                ChoiceRow("Без звука", selected == SoundChoice.Silent) {
+                                    select(SoundChoice.Silent)
+                                }
+                            }
+                            if (!forNotification) {
+                                item(key = "file") {
+                                    Row(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clickable { openFile.launch(arrayOf("audio/*")) }
+                                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Filled.FolderOpen, null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(Modifier.width(16.dp))
+                                        Text("Выбрать файл…", color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                                val sel = selected
+                                if (sel is SoundChoice.File && items?.none { it.uri == sel.uri } == true) {
+                                    item(key = "picked-file") {
+                                        ChoiceRow(titleOf(ctx, sel.uri), true) { select(sel) }
+                                    }
+                                }
+                            }
+                        }
+    
+                        when {
+                            items == null -> item(key = "loading") {
+                                Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
+                            }
+                            else -> {
+                                var lastGroup: String? = null
+                                filtered.forEach { s ->
+                                    if (s.group != lastGroup) {
+                                        lastGroup = s.group
+                                        val g = s.group
+                                        item(key = "h-$g", contentType = "header") { GroupHeader(g) }
+                                    }
+                                    item(key = s.uri.toString(), contentType = "sound") {
+                                        val isSel = (selected as? SoundChoice.File)?.uri == s.uri
+                                        ChoiceRow(s.title, isSel) { select(SoundChoice.File(s.uri)) }
+                                    }
+                                }
+                                if (!SoundLibrary.hasAudioPermission(ctx)) {
+                                    item(key = "noperm") {
+                                        Text(
+                                            "Звуки из памяти телефона скрыты: нет доступа к аудио.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
-
-                    when {
-                        items == null -> item(key = "loading") {
-                            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator()
-                            }
-                        }
-                        else -> {
-                            var lastGroup: String? = null
-                            filtered.forEach { s ->
-                                if (s.group != lastGroup) {
-                                    lastGroup = s.group
-                                    val g = s.group
-                                    item(key = "h-$g", contentType = "header") { GroupHeader(g) }
-                                }
-                                item(key = s.uri.toString(), contentType = "sound") {
-                                    val isSel = (selected as? SoundChoice.File)?.uri == s.uri
-                                    ChoiceRow(s.title, isSel) { select(SoundChoice.File(s.uri)) }
-                                }
-                            }
-                            if (!SoundLibrary.hasAudioPermission(ctx)) {
-                                item(key = "noperm") {
-                                    Text(
-                                        "Звуки из памяти телефона скрыты: нет доступа к аудио.",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    ScrollJumpButtons(listState)
                 }
 
                 HorizontalDivider()

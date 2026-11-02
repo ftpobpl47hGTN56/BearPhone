@@ -190,63 +190,67 @@ fun RecentsScreen(
         val muted = MaterialTheme.colorScheme.onSurfaceVariant
         val selBg = primary.copy(alpha = 0.14f)
 
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(rows, key = { it.key }, contentType = { "row" }) { row ->
-                val e = row.entry
-                val isSel = row.key in selected
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .background(if (isSel) selBg else Color.Transparent)
-                        .combinedClickable(
-                            onClick = {
-                                when {
-                                    selecting -> toggle(row)
-                                    e.number.isNotBlank() -> onCall(e.number)
-                                    else -> details = row
-                                }
-                            },
-                            onLongClick = { toggle(row) }
-                        )
-                        .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        LetterAvatar(e.name ?: e.number)
-                        if (isSel) {
-                            Box(
-                                Modifier.size(44.dp).background(primary, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) { Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimary) }
-                        }
-                    }
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            row.title,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = if (row.missed) CallRed else Color.Unspecified
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                typeIcon(e.type), null,
-                                tint = typeTint(e.type, primary, muted),
-                                modifier = Modifier.size(16.dp)
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
+                items(rows, key = { it.key }, contentType = { "row" }) { row ->
+                    val e = row.entry
+                    val isSel = row.key in selected
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(if (isSel) selBg else Color.Transparent)
+                            .combinedClickable(
+                                onClick = {
+                                    when {
+                                        selecting -> toggle(row)
+                                        e.number.isNotBlank() -> onCall(e.number)
+                                        else -> details = row
+                                    }
+                                },
+                                onLongClick = { toggle(row) }
                             )
-                            Spacer(Modifier.width(6.dp))
-                            val extra = if (e.fromBlockLog && e.numberLabel != null) " · ${e.numberLabel}" else ""
-                            Text(row.subtitle + extra, style = MaterialTheme.typography.bodyMedium, color = muted, maxLines = 1)
+                            .padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            LetterAvatar(e.name ?: e.number)
+                            if (isSel) {
+                                Box(
+                                    Modifier.size(44.dp).background(primary, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) { Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimary) }
+                            }
                         }
-                    }
-                    if (!selecting && e.number.isNotBlank()) {
-                        IconButton(onClick = { onCall(e.number) }) {
-                            Icon(Icons.Filled.Call, "Позвонить", tint = primary)
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                row.title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = if (row.missed) CallRed else Color.Unspecified
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    typeIcon(e.type), null,
+                                    tint = typeTint(e.type, primary, muted),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                val extra = if (e.fromBlockLog && e.numberLabel != null) " · ${e.numberLabel}" else ""
+                                Text(row.subtitle + extra, style = MaterialTheme.typography.bodyMedium, color = muted, maxLines = 1)
+                            }
+                        }
+                        if (!selecting && e.number.isNotBlank()) {
+                            IconButton(onClick = { onCall(e.number) }) {
+                                Icon(Icons.Filled.Call, "Позвонить", tint = primary)
+                            }
                         }
                     }
                 }
             }
+            ScrollJumpButtons(listState)
         }
     }
 
@@ -297,7 +301,15 @@ fun RecentsScreen(
                 val ids = selectedRows.flatMap { it.ids }
                 selected = emptySet()
                 scope.launch {
-                    CallLogRepository.deleteMany(ctx, ids)
+                    val realIds = ids.count { it > 0 }
+                    val deleted = CallLogRepository.deleteMany(ctx, ids)
+                    if (deleted < realIds) {
+                        android.widget.Toast.makeText(
+                            ctx,
+                            "Удалено $deleted из $realIds. Проверьте разрешение «Журнал вызовов» для BearPhone",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
                     BlockStore.removeLogEntries(ids.filter { it < 0 }.map { -it }.toSet())
                     onChanged()
                 }

@@ -68,41 +68,45 @@ fun ContactsScreen(
             return@Column
         }
 
-        LazyColumn(Modifier.fillMaxSize()) {
-            items(sorted, key = { it.id }) { c ->
-                var expanded by remember { mutableStateOf(false) }
-                Column {
-                    ListItem(
-                        leadingContent = { LetterAvatar(c.name) },
-                        headlineContent = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        supportingContent = {
-                            Text(
-                                if (c.numbers.size == 1) c.numbers.first()
-                                else "${c.numbers.first()} и ещё ${c.numbers.size - 1}"
-                            )
-                        },
-                        trailingContent = {
-                            if (c.starred) Icon(Icons.Filled.Star, "Избранный", tint = MaterialTheme.colorScheme.secondary)
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        modifier = Modifier.clickable {
-                            if (c.numbers.size == 1) onCall(c.numbers.first()) else expanded = !expanded
-                        }
-                    )
-                    if (expanded) {
-                        c.numbers.forEach { n ->
-                            Text(
-                                n,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onCall(n) }
-                                    .padding(start = 76.dp, top = 10.dp, bottom = 10.dp)
-                            )
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
+                items(sorted, key = { it.id }) { c ->
+                    var expanded by remember { mutableStateOf(false) }
+                    Column {
+                        ListItem(
+                            leadingContent = { LetterAvatar(c.name) },
+                            headlineContent = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            supportingContent = {
+                                Text(
+                                    if (c.numbers.size == 1) c.numbers.first()
+                                    else "${c.numbers.first()} и ещё ${c.numbers.size - 1}"
+                                )
+                            },
+                            trailingContent = {
+                                if (c.starred) Icon(Icons.Filled.Star, "Избранный", tint = MaterialTheme.colorScheme.secondary)
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.clickable {
+                                if (c.numbers.size == 1) onCall(c.numbers.first()) else expanded = !expanded
+                            }
+                        )
+                        if (expanded) {
+                            c.numbers.forEach { n ->
+                                Text(
+                                    n,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onCall(n) }
+                                        .padding(start = 76.dp, top = 10.dp, bottom = 10.dp)
+                                )
+                            }
                         }
                     }
                 }
             }
+            ScrollJumpButtons(listState)
         }
     }
 }

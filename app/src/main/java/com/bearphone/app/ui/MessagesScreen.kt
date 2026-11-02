@@ -271,67 +271,71 @@ private fun ThreadList(
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val primary = MaterialTheme.colorScheme.primary
     val selBg = primary.copy(alpha = 0.14f)
-    LazyColumn(Modifier.fillMaxSize()) {
-        items(threads, key = { it.threadId }, contentType = { "thread" }) { t ->
-            val name = nameOf(t.address)
-            val title = name ?: t.address.ifBlank { "Без номера" }
-            val isSel = t.threadId in selected
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .background(if (isSel) selBg else androidx.compose.ui.graphics.Color.Transparent)
-                    .combinedClickable(onClick = { onClick(t) }, onLongClick = { onLongClick(t) })
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    LetterAvatar(title)
-                    if (isSel) {
-                        Box(Modifier.size(44.dp).background(primary, CircleShape), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimary)
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
+            items(threads, key = { it.threadId }, contentType = { "thread" }) { t ->
+                val name = nameOf(t.address)
+                val title = name ?: t.address.ifBlank { "Без номера" }
+                val isSel = t.threadId in selected
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(if (isSel) selBg else androidx.compose.ui.graphics.Color.Transparent)
+                        .combinedClickable(onClick = { onClick(t) }, onLongClick = { onLongClick(t) })
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        LetterAvatar(title)
+                        if (isSel) {
+                            Box(Modifier.size(44.dp).background(primary, CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimary)
+                            }
                         }
                     }
-                }
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (t.unread > 0) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(relativeTime(t.dateMillis), style = MaterialTheme.typography.labelSmall, color = muted)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            (if (t.lastOutgoing) "Вы: " else "") + t.snippet,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (t.unread > 0) MaterialTheme.colorScheme.onSurface else muted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        if (t.unread > 0) {
-                            Spacer(Modifier.width(8.dp))
-                            Box(
-                                Modifier.size(22.dp).background(primary, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    if (t.unread > 99) "99" else t.unread.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onPrimary
-                                )
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (t.unread > 0) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(relativeTime(t.dateMillis), style = MaterialTheme.typography.labelSmall, color = muted)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                (if (t.lastOutgoing) "Вы: " else "") + t.snippet,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (t.unread > 0) MaterialTheme.colorScheme.onSurface else muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (t.unread > 0) {
+                                Spacer(Modifier.width(8.dp))
+                                Box(
+                                    Modifier.size(22.dp).background(primary, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        if (t.unread > 99) "99" else t.unread.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
+            item { Spacer(Modifier.size(88.dp)) } // место под кнопку "Новое"
         }
-        item { Spacer(Modifier.size(88.dp)) } // место под кнопку "Новое"
+        ScrollJumpButtons(listState)
     }
 }
 
@@ -417,23 +421,26 @@ private fun ConversationScreen(
         }
 
         // ---- сообщения ----
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            if (messages.isEmpty()) {
-                item { EmptyState(if (thread == null) "Новый диалог" else "Загрузка…") }
+        androidx.compose.foundation.layout.Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize().lazyScrollbar(listState),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (messages.isEmpty()) {
+                    item { EmptyState(if (thread == null) "Новый диалог" else "Загрузка…") }
+                }
+                items(messages, key = { it.id }, contentType = { if (it.outgoing) "out" else "in" }) { m ->
+                    Bubble(
+                        m,
+                        selected = m.id in selected,
+                        onClick = { if (selecting) toggle(m) },
+                        onLongClick = { toggle(m) },
+                        onCopyCode = { copyText(ctx, it) },
+                    )
+                }
             }
-            items(messages, key = { it.id }, contentType = { if (it.outgoing) "out" else "in" }) { m ->
-                Bubble(
-                    m,
-                    selected = m.id in selected,
-                    onClick = { if (selecting) toggle(m) },
-                    onLongClick = { toggle(m) },
-                    onCopyCode = { copyText(ctx, it) },
-                )
-            }
+            ScrollJumpButtons(listState)
         }
 
         // ---- ввод ----
