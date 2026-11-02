@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
@@ -181,7 +182,7 @@ fun TabsWithSearch(
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) { SubTabs(titles, selected, onSelect) }
-        IconButton(onClick = onSearch) { Icon(androidx.compose.material.icons.Icons.Filled.Search, "Поиск") }
+        IconButton(onClick = onSearch) { Icon(Icons.Filled.Search, "Поиск") }
     }
 }
 
@@ -195,7 +196,7 @@ fun SearchField(query: String, onQuery: (String) -> Unit, placeholder: String, o
         value = query,
         onValueChange = onQuery,
         placeholder = { Text(placeholder) },
-        leadingIcon = { Icon(androidx.compose.material.icons.Icons.Filled.Search, null) },
+        leadingIcon = { Icon(Icons.Filled.Search, null) },
         trailingIcon = { IconButton(onClick = onClose) { Icon(Icons.Filled.Close, "Закрыть поиск") } },
         singleLine = true,
         shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
