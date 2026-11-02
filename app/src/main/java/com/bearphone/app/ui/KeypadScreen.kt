@@ -1,5 +1,34 @@
 package com.bearphone.app.ui
 
+import android.provider.CallLog
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.CallMade
+import androidx.compose.material.icons.automirrored.filled.CallMissed
+import androidx.compose.material.icons.automirrored.filled.CallReceived
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Dialpad
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import com.bearphone.app.block.BlockStore
+import com.bearphone.app.block.NumberMatcher
+import com.bearphone.app.data.CallLogEntry
+import com.bearphone.app.ui.theme.CallRed
+import com.bearphone.app.ui.theme.LocalBearStyle
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -64,8 +93,11 @@ private fun t9Of(name: String): String =
     name.lowercase().map { T9[it] ?: if (it.isDigit()) it else ' ' }.joinToString("")
 
 /**
- * Набор номера с T9-подсказками из контактов.
- * @param number текущий набранный номер (состояние хранит MainActivity, чтобы tel:-ссылки его заполняли)
+ * Экран "Набор":
+ *  - сверху строка поиска (контакты + история вызовов);
+ *  - посередине история вызовов, а при наборе — T9-подсказки из контактов;
+ *  - снизу клавиатура в скруглённой карточке с рамкой; её можно спрятать (⌄) и вернуть кнопкой.
+ * @param number набранный номер (состояние в MainActivity, чтобы tel:-ссылки его заполняли)
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -73,10 +105,38 @@ fun KeypadScreen(
     number: String,
     onNumberChange: (String) -> Unit,
     contacts: List<Contact>,
+    recents: List<CallLogEntry>,
     onCall: (String) -> Unit,
 ) {
     val haptic = LocalHapticFeedback.current
+    val block by BlockStore.state.collectAsState()
+    var padVisible by rememberSaveable { mutableStateOf(true) }
+    var query by rememberSaveable { mutableStateOf("") }
+    val listState = rememberLazyListState()
 
+    // Номер пришёл снаружи (tel:-ссылка, «изменить перед вызовом») — показываем клавиатуру
+    LaunchedEffect(number) { if (number.isNotEmpty()) padVisible = true }
+    // Начали листать историю — прячем клавиатуру, как в обычных звонилках
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress && padVisible && number.isEmpty()) padVisible = false
+    }
+
+    // История без заблокированных, подряд идущие звонки одного номера — одной строкой
+    val history = remember(recents, block) {
+        val clean = recents.filterNot { e ->
+            e.type == CallLog.Calls.BLOCKED_TYPE || block.rules.any { NumberMatcher.matches(it.pattern, e.number) }
+        }
+        val out = ArrayList<Pair<CallLogEntry, Int>>()
+        clean.forEach { e ->
+            val last = out.lastOrNull()
+            if (last != null && last.first.number == e.number && last.first.type == e.type) {
+                out[out.lastIndex] = last.first to last.second + 1
+            } else out += e to 1
+        }
+        out
+    }
+
+    // T9 при наборе номера
     val suggestions = remember(number, contacts) {
         if (number.length < 2) emptyList()
         else {
@@ -88,95 +148,292 @@ fun KeypadScreen(
         }
     }
 
+    // Поиск строкой сверху: имя, номер в любом формате
+    val q = query.trim()
+    val foundContacts = remember(q, contacts) {
+        if (q.isEmpty()) emptyList() else {
+            val d = queryDigits(q)
+            contacts.filter { c ->
+                c.name.contains(q, ignoreCase = true) ||
+                    (d.isNotEmpty() && c.numbers.any { it.filter(Char::isDigit).contains(d) })
+            }.take(30)
+        }
+    }
+    val foundCalls = remember(q, history) {
+        if (q.isEmpty()) emptyList() else {
+            val d = queryDigits(q)
+            history.filter { (e, _) ->
+                (e.name?.contains(q, ignoreCase = true) == true) ||
+                    (d.isNotEmpty() && e.number.filter(Char::isDigit).contains(d))
+            }.take(50)
+        }
+    }
+
+    val primary = MaterialTheme.colorScheme.primary
+    val mark = primary.copy(alpha = 0.3f)
+
     Column(Modifier.fillMaxSize()) {
-        // ---- подсказки ----
-        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(suggestions, key = { it.id }) { c ->
-                ListItem(
-                    headlineContent = { Text(c.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    supportingContent = { Text(c.numbers.first()) },
-                    leadingContent = { LetterAvatar(c.name, 40.dp) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    modifier = Modifier.combinedClickable(
-                        onClick = { onCall(c.numbers.first()) },
-                        onLongClick = { onNumberChange(c.numbers.first()) }
-                    )
+        // ---- строка поиска ----
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            placeholder = { Text("Поиск контактов и вызовов") },
+            leadingIcon = { Icon(Icons.Filled.Search, null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, "Очистить") }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+
+        // ---- список: поиск / T9 / история ----
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize().lazyScrollbar(listState)) {
+                when {
+                    q.isNotEmpty() -> {
+                        if (foundContacts.isEmpty() && foundCalls.isEmpty()) item { EmptyState("Ничего не найдено") }
+                        if (foundContacts.isNotEmpty()) {
+                            item { SectionTitle("Контакты") }
+                            items(foundContacts, key = { "c" + it.id }) { c ->
+                                ContactRow(c, q, mark, onCall = { onCall(c.numbers.first()) }, onPick = { onNumberChange(c.numbers.first()) })
+                            }
+                        }
+                        if (foundCalls.isNotEmpty()) {
+                            item { SectionTitle("Вызовы") }
+                            items(foundCalls, key = { "h" + it.first.id }) { (e, n) ->
+                                HistoryRow(e, n, q, mark, onCall, onNumberChange)
+                            }
+                        }
+                    }
+                    suggestions.isNotEmpty() -> {
+                        items(suggestions, key = { "s" + it.id }) { c ->
+                            ContactRow(c, "", mark, onCall = { onCall(c.numbers.first()) }, onPick = { onNumberChange(c.numbers.first()) })
+                        }
+                    }
+                    number.length >= 2 -> item { EmptyState("Нет контактов с таким номером") }
+                    history.isEmpty() -> item { EmptyState("История вызовов пуста") }
+                    else -> {
+                        item { SectionTitle("Недавние") }
+                        items(history, key = { "h" + it.first.id }) { (e, n) ->
+                            HistoryRow(e, n, "", mark, onCall, onNumberChange)
+                        }
+                    }
+                }
+                // место под кнопку "показать клавиатуру"
+                item { Spacer(Modifier.height(88.dp)) }
+            }
+            ScrollJumpButtons(listState)
+
+            // Клавиатура спрятана — кнопка вернуть её
+            if (!padVisible) {
+                FloatingActionButton(
+                    onClick = { padVisible = true },
+                    containerColor = primary,
+                    shape = RoundedCornerShape(18.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp)
+                        .size(64.dp)
+                        .bearFrame(RoundedCornerShape(18.dp))
+                ) { Icon(Icons.Filled.Dialpad, "Показать клавиатуру", Modifier.size(30.dp)) }
+            }
+        }
+
+        // ---- клавиатура в скруглённой карточке с рамкой ----
+        AnimatedVisibility(
+            visible = padVisible,
+            enter = slideInVertically { it } + fadeIn(),
+            exit = slideOutVertically { it } + fadeOut(),
+        ) {
+            DialPad(
+                number = number,
+                onNumberChange = onNumberChange,
+                onCall = { onCall(number) },
+                onHide = { padVisible = false },
+                onKey = { digit ->
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onNumberChange(number + digit)
+                },
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun DialPad(
+    number: String,
+    onNumberChange: (String) -> Unit,
+    onCall: () -> Unit,
+    onHide: () -> Unit,
+    onKey: (String) -> Unit,
+) {
+    val style = LocalBearStyle.current
+    val shape = RoundedCornerShape(28.dp)
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = style.borderStroke, // рамка: толщина и цвет из Настройки → Оформление (3 px)
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+            .bearFrame(shape)
+    ) {
+        Column(Modifier.padding(bottom = 12.dp)) {
+            // ---- ручка "спрятать" ----
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onHide)
+                    .padding(top = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.KeyboardArrowDown, "Спрятать клавиатуру",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
+
+            // ---- поле номера ----
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Spacer(Modifier.width(48.dp))
+                Text(
+                    number,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Center,
+                    fontSize = if (number.length > 13) 24.sp else 32.sp,
+                    fontWeight = FontWeight.Light,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                    if (number.isNotEmpty()) {
+                        Box(
+                            Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .combinedClickable(
+                                    onClick = { onNumberChange(number.dropLast(1)) },
+                                    onLongClick = { onNumberChange("") }
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Icons.AutoMirrored.Filled.Backspace, "Стереть") }
+                    }
+                }
+            }
+
+            // ---- клавиши ----
+            Column(
+                Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                KEYS.chunked(3).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                        row.forEach { (digit, letters) ->
+                            DialKey(
+                                digit = digit,
+                                letters = letters,
+                                onClick = { onKey(digit) },
+                                onLongClick = if (digit == "0") ({ onNumberChange(number + "+") }) else null
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ---- вызов ----
+            Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
+                FloatingActionButton(
+                    onClick = onCall,
+                    containerColor = CallGreen,
+                    contentColor = Color.White,
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                    modifier = Modifier.size(64.dp).bearFrame(CircleShape, Color.White.copy(alpha = 0.35f))
+                ) { Icon(Icons.Filled.Call, "Позвонить", Modifier.size(30.dp)) }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ContactRow(c: Contact, q: String, mark: Color, onCall: () -> Unit, onPick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onCall, onLongClick = onPick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LetterAvatar(c.name, 40.dp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(highlight(c.name, q, mark), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge)
+            Text(c.numbers.first(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(Icons.Filled.Call, "Позвонить", tint = MaterialTheme.colorScheme.primary)
+    }
+}
+
+/** Строка истории: тап — позвонить, долгий тап — номер в поле набора. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HistoryRow(
+    e: CallLogEntry, count: Int, q: String, mark: Color,
+    onCall: (String) -> Unit, onPick: (String) -> Unit,
+) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val missed = e.type == CallLog.Calls.MISSED_TYPE || e.type == CallLog.Calls.REJECTED_TYPE
+    val title = (e.name ?: e.number.ifBlank { "Скрытый номер" }) + if (count > 1) " ($count)" else ""
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { if (e.number.isNotBlank()) onCall(e.number) },
+                onLongClick = { if (e.number.isNotBlank()) onPick(e.number) }
+            )
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        LetterAvatar(e.name ?: e.number, 40.dp)
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                highlight(title, q, mark),
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (missed) CallRed else Color.Unspecified
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    when (e.type) {
+                        CallLog.Calls.OUTGOING_TYPE -> Icons.AutoMirrored.Filled.CallMade
+                        CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> Icons.AutoMirrored.Filled.CallMissed
+                        else -> Icons.AutoMirrored.Filled.CallReceived
+                    },
+                    null,
+                    tint = when (e.type) {
+                        CallLog.Calls.OUTGOING_TYPE -> MaterialTheme.colorScheme.primary
+                        CallLog.Calls.MISSED_TYPE, CallLog.Calls.REJECTED_TYPE -> CallRed
+                        else -> CallGreen
+                    },
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    relativeTime(e.dateMillis) + if (e.durationSec > 0) " · ${formatDuration(e.durationSec)}" else "",
+                    style = MaterialTheme.typography.bodySmall, color = muted
                 )
             }
         }
-
-        // ---- поле номера ----
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Spacer(Modifier.width(48.dp))
-            Text(
-                number,
-                modifier = Modifier.weight(1f),
-                textAlign = TextAlign.Center,
-                fontSize = if (number.length > 13) 26.sp else 34.sp,
-                fontWeight = FontWeight.Light,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                if (number.isNotEmpty()) {
-                    Box(
-                        Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .combinedClickable(
-                                onClick = { onNumberChange(number.dropLast(1)) },
-                                onLongClick = { onNumberChange("") }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Backspace, "Стереть")
-                    }
-                }
-            }
-        }
-
-        // ---- клавиатура ----
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            KEYS.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    row.forEach { (digit, letters) ->
-                        DialKey(
-                            digit = digit,
-                            letters = letters,
-                            onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onNumberChange(number + digit)
-                            },
-                            onLongClick = when (digit) {
-                                "0" -> ({ onNumberChange(number + "+") })
-                                else -> null
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // ---- кнопка вызова ----
-        Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
-            FloatingActionButton(
-                onClick = { onCall(number) },
-                containerColor = CallGreen,
-                contentColor = Color.White,
-                shape = CircleShape,
-                // тень рисует bearFrame (её можно выключить в настройках)
-                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
-                modifier = Modifier.size(68.dp).bearFrame(CircleShape, Color.White.copy(alpha = 0.35f))
-            ) {
-                Icon(Icons.Filled.Call, "Позвонить", Modifier.size(30.dp))
-            }
-        }
+        Icon(Icons.Filled.Call, "Позвонить", tint = MaterialTheme.colorScheme.primary)
     }
 }
 

@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
                                 number = number,
                                 onNumberChange = { number = it },
                                 contacts = contacts,
+                                recents = recents,
                                 onCall = ::placeCall,
                             )
                             TAB_RECENTS -> RecentsScreen(
