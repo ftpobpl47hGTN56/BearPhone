@@ -34,6 +34,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableIntStateOf
+import com.bearphone.app.data.HiddenSmsStore
 
 @Composable
 fun SettingsScreen(
@@ -107,6 +110,16 @@ fun SettingsScreen(
         SoundSettingsSection()
 
         ThemeSection()
+
+        // Скрытые SMS (Android не дал удалить их по-настоящему) — можно вернуть
+        var hiddenCount by remember { mutableIntStateOf(HiddenSmsStore.count()) }
+        if (hiddenCount > 0) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { HiddenSmsStore.restoreAll(); hiddenCount = 0 },
+                modifier = Modifier.padding(horizontal = 16.dp).bearFrame()
+            ) { Text("Показать скрытые SMS ($hiddenCount)") }
+        }
 
         Spacer(Modifier.height(8.dp))
         OutlinedButton(

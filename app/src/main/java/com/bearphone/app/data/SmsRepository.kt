@@ -29,6 +29,15 @@ data class SmsMessage(
     val outgoing: Boolean,
     /** Telephony.Sms.MESSAGE_TYPE_*: отправляется / ошибка и т.п. */
     val type: Int,
+    val address: String = "",
+    /** Когда отправлено (для входящих — время у отправителя), 0 — неизвестно */
+    val dateSentMillis: Long = 0,
+    val serviceCenter: String? = null,
+    /** Telephony.Sms.STATUS: -1 нет отчёта, 0 доставлено, 32 ожидает, 64 ошибка */
+    val status: Int = -1,
+    val read: Boolean = true,
+    /** SIM, через которую прошло сообщение (subscription id), -1 — неизвестно */
+    val subId: Int = -1,
 )
 
 /**
@@ -67,6 +76,8 @@ object SmsRepository {
                 while (c.moveToNext() && n++ < SCAN_LIMIT) {
                     val tid = c.getLong(0)
                     val type = c.getInt(4)
+                    // Диалог скрыт целиком (до прихода нового сообщения) — пропускаем
+                    if (HiddenSmsStore.isThreadHidden(tid, c.getLong(3))) continue
                     if (type == Telephony.Sms.MESSAGE_TYPE_INBOX && c.getInt(5) == 0) {
                         unread[tid] = (unread[tid] ?: 0) + 1
                     }
@@ -95,18 +106,30 @@ object SmsRepository {
         try {
             ctx.contentResolver.query(
                 Telephony.Sms.CONTENT_URI,
-                arrayOf(Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE),
+                arrayOf(
+                    Telephony.Sms._ID, Telephony.Sms.BODY, Telephony.Sms.DATE, Telephony.Sms.TYPE,
+                    Telephony.Sms.ADDRESS, Telephony.Sms.DATE_SENT, Telephony.Sms.SERVICE_CENTER,
+                    Telephony.Sms.STATUS, Telephony.Sms.READ, Telephony.Sms.SUBSCRIPTION_ID,
+                ),
                 Telephony.Sms.THREAD_ID + "=?", arrayOf(threadId.toString()),
                 Telephony.Sms.DATE + " DESC"
             )?.use { c ->
                 while (c.moveToNext() && out.size < THREAD_MESSAGES_LIMIT) {
                     val type = c.getInt(3)
+                    val id = c.getLong(0)
+                    if (HiddenSmsStore.isMessageHidden(id)) continue
                     out += SmsMessage(
-                        id = c.getLong(0),
+                        id = id,
                         body = c.getString(1).orEmpty(),
                         dateMillis = c.getLong(2),
                         outgoing = type != Telephony.Sms.MESSAGE_TYPE_INBOX,
                         type = type,
+                        address = c.getString(4).orEmpty(),
+                        dateSentMillis = c.getLong(5),
+                        serviceCenter = c.getString(6)?.takeIf { it.isNotBlank() },
+                        status = if (c.isNull(7)) -1 else c.getInt(7),
+                        read = c.getInt(8) != 0,
+                        subId = if (c.isNull(9)) -1 else c.getInt(9),
                     )
                 }
             }
@@ -142,6 +165,38 @@ object SmsRepository {
         } catch (e: Exception) {
             e.message ?: "Ошибка отправки"
         }
+    }
+
+    /**
+     * Удалить сообщения. Android даёт удалять SMS ТОЛЬКО приложению SMS по умолчанию,
+     * поэтому пробуем удалить, а что не удалилось — скрываем внутри BearPhone.
+     * @return сколько удалено по-настоящему (остальные скрыты)
+     */
+    suspend fun deleteMessages(ctx: Context, ids: Collection<Long>): Int = withContext(Dispatchers.IO) {
+        var deleted = 0
+        ids.forEach { id ->
+            val n = try {
+                ctx.contentResolver.delete(
+                    Telephony.Sms.CONTENT_URI, Telephony.Sms._ID + "=?", arrayOf(id.toString())
+                )
+            } catch (e: Exception) { 0 }
+            if (n > 0) deleted += n else HiddenSmsStore.hideMessages(listOf(id))
+        }
+        deleted
+    }
+
+    /** Удалить (или скрыть) диалоги целиком. */
+    suspend fun deleteThreads(ctx: Context, threads: Collection<SmsThread>): Int = withContext(Dispatchers.IO) {
+        var deleted = 0
+        threads.forEach { t ->
+            val n = try {
+                ctx.contentResolver.delete(
+                    Telephony.Sms.CONTENT_URI, Telephony.Sms.THREAD_ID + "=?", arrayOf(t.threadId.toString())
+                )
+            } catch (e: Exception) { 0 }
+            if (n > 0) deleted++ else HiddenSmsStore.hideThread(t.threadId, t.dateMillis)
+        }
+        deleted
     }
 
     /** Найти диалог по номеру (для "Написать SMS" из журнала и нового сообщения). */

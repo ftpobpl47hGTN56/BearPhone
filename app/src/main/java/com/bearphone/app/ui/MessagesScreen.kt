@@ -61,7 +61,13 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bearphone.app.block.BlockStore
 import com.bearphone.app.block.NumberMatcher
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import com.bearphone.app.data.Contact
 import com.bearphone.app.data.SmsMessage
 import com.bearphone.app.data.SmsRepository
@@ -84,6 +90,8 @@ fun MessagesScreen(
     onClose: () -> Unit,
     onCall: (String) -> Unit,
     onRequestPermissions: () -> Unit,
+    /** Что-то удалили/скрыли — перечитать */
+    onChanged: () -> Unit,
 ) {
     if (!canRead) {
         Column(
@@ -125,24 +133,121 @@ fun MessagesScreen(
             reloadTick = reloadTick,
             onBack = onClose,
             onCall = onCall,
+            onChanged = onChanged,
         )
         return
     }
 
     var composeNew by rememberSaveable { mutableStateOf(false) }
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val block by BlockStore.state.collectAsState()
 
-    Box(Modifier.fillMaxSize()) {
-        if (threads.isEmpty()) {
-            EmptyState("Сообщений нет")
+    var sub by rememberSaveable { mutableIntStateOf(0) }
+    fun blocked(t: SmsThread) = block.rules.any { NumberMatcher.matches(it.pattern, t.address) }
+    val visible = remember(threads, block, sub) {
+        if (sub == 0) threads.filterNot(::blocked) else threads.filter(::blocked)
+    }
+    val blockedUnread = remember(threads, block) { threads.filter(::blocked).sumOf { it.unread } }
+
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    val selecting = selected.isNotEmpty()
+    var details by remember { mutableStateOf<SmsThread?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    BackHandler(enabled = selecting) { selected = emptySet() }
+    val selectedThreads = visible.filter { it.threadId in selected }
+    fun line(t: SmsThread) = "${nameOf(t.address) ?: t.address}: ${t.snippet}"
+
+    Column(Modifier.fillMaxSize()) {
+        if (selecting) {
+            SelectionBar(
+                count = selected.size,
+                total = visible.size,
+                onClose = { selected = emptySet() },
+                onSelectAll = {
+                    selected = if (selected.size == visible.size) emptySet() else visible.map { it.threadId }.toSet()
+                },
+                onCopy = { copyText(ctx, selectedThreads.joinToString("\n", transform = ::line)); selected = emptySet() },
+                onShare = { shareText(ctx, selectedThreads.joinToString("\n", transform = ::line)) },
+                onDetails = { details = selectedThreads.firstOrNull() },
+                onDelete = { confirmDelete = true },
+            )
         } else {
-            ThreadList(threads, ::nameOf, onOpen)
+            SubTabs(
+                listOf("Входящие", if (blockedUnread > 0) "Заблокированные ($blockedUnread)" else "Заблокированные"),
+                sub
+            ) { sub = it; selected = emptySet() }
         }
-        FloatingActionButton(
-            onClick = { composeNew = true },
-            containerColor = MaterialTheme.colorScheme.primary,
-            elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).bearFrame(RoundedCornerShape(16.dp))
-        ) { Icon(Icons.Filled.Edit, "Новое сообщение") }
+
+        Box(Modifier.fillMaxSize()) {
+            if (visible.isEmpty()) {
+                EmptyState(if (sub == 0) "Сообщений нет" else "Нет SMS от заблокированных номеров")
+            } else {
+                ThreadList(
+                    threads = visible,
+                    nameOf = ::nameOf,
+                    selected = selected,
+                    onClick = { t ->
+                        if (selecting) selected = if (t.threadId in selected) selected - t.threadId else selected + t.threadId
+                        else onOpen(t.address)
+                    },
+                    onLongClick = { t ->
+                        selected = if (t.threadId in selected) selected - t.threadId else selected + t.threadId
+                    },
+                )
+            }
+            if (!selecting && sub == 0) {
+                FloatingActionButton(
+                    onClick = { composeNew = true },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp).bearFrame(RoundedCornerShape(16.dp))
+                ) { Icon(Icons.Filled.Edit, "Новое сообщение") }
+            }
+        }
+    }
+
+    details?.let { t ->
+        DetailsDialog(
+            title = "Сведения диалога",
+            rows = buildList {
+                nameOf(t.address)?.let { add(DetailRow("Контакт", it)) }
+                add(DetailRow("Отправитель", t.address.ifBlank { "Без номера" }))
+                add(DetailRow("Последнее сообщение", fullDateTime(ctx, t.dateMillis)))
+                add(DetailRow("Непрочитанных", t.unread.toString()))
+                BlockStore.ruleFor(t.address)?.let { add(DetailRow("Блокировка", "по правилу ${it.pattern}")) }
+            },
+            actions = buildList {
+                add(DetailAction("Открыть диалог") { onOpen(t.address) })
+                val rule = BlockStore.ruleFor(t.address)
+                if (t.address.isNotBlank()) when {
+                    rule == null -> add(DetailAction("Заблокировать отправителя", danger = true) {
+                        BlockStore.addRule(t.address, nameOf(t.address) ?: "")
+                    })
+                    !NumberMatcher.isMask(rule.pattern) -> add(DetailAction("Разблокировать отправителя") {
+                        BlockStore.removeRule(rule)
+                    })
+                }
+            },
+            onDismiss = { details = null; selected = emptySet() }
+        )
+    }
+
+    if (confirmDelete) {
+        ConfirmDeleteDialog(
+            title = "Удалить диалоги?",
+            text = "Выбрано диалогов: ${selectedThreads.size}.\n\n" + DELETE_NOTE,
+            onDismiss = { confirmDelete = false },
+            onConfirm = {
+                val list = selectedThreads
+                selected = emptySet()
+                scope.launch {
+                    val real = SmsRepository.deleteThreads(ctx, list)
+                    if (real < list.size) Toast.makeText(ctx, HIDDEN_TOAST, Toast.LENGTH_LONG).show()
+                    onChanged()
+                }
+            }
+        )
     }
 
     if (composeNew) {
@@ -154,22 +259,39 @@ fun MessagesScreen(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ThreadList(threads: List<SmsThread>, nameOf: (String) -> String?, onOpen: (String) -> Unit) {
+private fun ThreadList(
+    threads: List<SmsThread>,
+    nameOf: (String) -> String?,
+    selected: Set<Long>,
+    onClick: (SmsThread) -> Unit,
+    onLongClick: (SmsThread) -> Unit,
+) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val primary = MaterialTheme.colorScheme.primary
+    val selBg = primary.copy(alpha = 0.14f)
     LazyColumn(Modifier.fillMaxSize()) {
         items(threads, key = { it.threadId }, contentType = { "thread" }) { t ->
             val name = nameOf(t.address)
             val title = name ?: t.address.ifBlank { "Без номера" }
+            val isSel = t.threadId in selected
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .clickable { onOpen(t.address) }
+                    .background(if (isSel) selBg else androidx.compose.ui.graphics.Color.Transparent)
+                    .combinedClickable(onClick = { onClick(t) }, onLongClick = { onLongClick(t) })
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                LetterAvatar(title)
+                Box(contentAlignment = Alignment.Center) {
+                    LetterAvatar(title)
+                    if (isSel) {
+                        Box(Modifier.size(44.dp).background(primary, CircleShape), contentAlignment = Alignment.Center) {
+                            Icon(Icons.Filled.CheckCircle, null, tint = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+                }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -213,6 +335,12 @@ private fun ThreadList(threads: List<SmsThread>, nameOf: (String) -> String?, on
     }
 }
 
+private const val DELETE_NOTE =
+    "Android разрешает удалять SMS только приложению SMS по умолчанию. " +
+        "Если система не даст удалить, BearPhone скроет сообщения у себя " +
+        "(в системном приложении «Сообщения» они останутся)."
+private const val HIDDEN_TOAST = "Скрыто в BearPhone: удалить SMS может только системное приложение «Сообщения»"
+
 /** Слова, по которым понимаем, что в SMS одноразовый код. */
 private val CODE_HINT = Regex("код|code|пароль|password|otp|подтвержд", RegexOption.IGNORE_CASE)
 private val CODE = Regex("(?<!\\d)\\d{4,8}(?!\\d)")
@@ -226,10 +354,20 @@ private fun ConversationScreen(
     reloadTick: Int,
     onBack: () -> Unit,
     onCall: (String) -> Unit,
+    onChanged: () -> Unit,
 ) {
-    BackHandler(onBack = onBack)
     val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
     var text by rememberSaveable(address) { mutableStateOf("") }
+
+    // ---- выделение сообщений ----
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    val selecting = selected.isNotEmpty()
+    var details by remember { mutableStateOf<SmsMessage?>(null) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    // "Назад": сначала снимаем выделение, потом выходим из диалога
+    BackHandler { if (selecting) selected = emptySet() else onBack() }
+    fun toggle(m: SmsMessage) { selected = if (m.id in selected) selected - m.id else selected + m.id }
 
     val messages by produceState(emptyList<SmsMessage>(), thread?.threadId, reloadTick) {
         value = thread?.let { SmsRepository.loadMessages(ctx, it.threadId) } ?: emptyList()
@@ -242,9 +380,28 @@ private fun ConversationScreen(
     // Отправлять ответ на сервисные номера ("Tinkoff", "900") часто бессмысленно
     val canReply = address.any { it.isDigit() } && address.none { it.isLetter() }
 
+    val selectedMsgs = messages.filter { it.id in selected }
+    fun line(m: SmsMessage) =
+        (if (m.outgoing) "Я" else (name ?: address)) + " (" + fullDateTime(ctx, m.dateMillis) + "): " + m.body
+
     Column(Modifier.fillMaxSize().imePadding()) {
-        // ---- шапка ----
-        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        // ---- шапка / панель выделения ----
+        if (selecting) SelectionBar(
+            count = selected.size,
+            total = messages.size,
+            onClose = { selected = emptySet() },
+            onSelectAll = {
+                selected = if (selected.size == messages.size) emptySet() else messages.map { it.id }.toSet()
+            },
+            // Одно сообщение копируем как есть (удобно для кодов), несколько — с отправителем и временем
+            onCopy = {
+                copyText(ctx, if (selectedMsgs.size == 1) selectedMsgs[0].body else selectedMsgs.joinToString("\n\n", transform = ::line))
+                selected = emptySet()
+            },
+            onShare = { shareText(ctx, if (selectedMsgs.size == 1) selectedMsgs[0].body else selectedMsgs.joinToString("\n\n", transform = ::line)) },
+            onDetails = { details = selectedMsgs.firstOrNull() },
+            onDelete = { confirmDelete = true },
+        ) else Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад") }
             Column(Modifier.weight(1f)) {
                 Text(name ?: address, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -269,7 +426,13 @@ private fun ConversationScreen(
                 item { EmptyState(if (thread == null) "Новый диалог" else "Загрузка…") }
             }
             items(messages, key = { it.id }, contentType = { if (it.outgoing) "out" else "in" }) { m ->
-                Bubble(m, onCopy = { copy(ctx, it) })
+                Bubble(
+                    m,
+                    selected = m.id in selected,
+                    onClick = { if (selecting) toggle(m) },
+                    onLongClick = { toggle(m) },
+                    onCopyCode = { copyText(ctx, it) },
+                )
             }
         }
 
@@ -318,11 +481,93 @@ private fun ConversationScreen(
             )
         }
     }
+
+    MessageDialogs(
+        details = details,
+        name = name,
+        address = address,
+        onDetailsDismiss = { details = null; selected = emptySet() },
+        confirmDelete = confirmDelete,
+        deleteCount = selectedMsgs.size,
+        onDeleteDismiss = { confirmDelete = false },
+        onDelete = {
+            val ids = selectedMsgs.map { it.id }
+            selected = emptySet()
+            scope.launch {
+                val real = SmsRepository.deleteMessages(ctx, ids)
+                if (real < ids.size) Toast.makeText(ctx, HIDDEN_TOAST, Toast.LENGTH_LONG).show()
+                onChanged()
+            }
+        },
+    )
+}
+
+@Composable
+private fun MessageDialogs(
+    details: SmsMessage?,
+    name: String?,
+    address: String,
+    onDetailsDismiss: () -> Unit,
+    confirmDelete: Boolean,
+    deleteCount: Int,
+    onDeleteDismiss: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    details?.let { m ->
+        DetailsDialog(
+            title = "Сведения сообщения",
+            rows = buildList {
+                add(DetailRow(if (m.outgoing) "Кому" else "От кого", listOfNotNull(name, m.address.ifBlank { address }).joinToString("\n")))
+                add(DetailRow("Тип", smsTypeName(m.type)))
+                add(DetailRow(if (m.outgoing) "Отправлено" else "Получено", fullDateTime(ctx, m.dateMillis)))
+                if (!m.outgoing && m.dateSentMillis > 0) add(DetailRow("Отправлено отправителем", fullDateTime(ctx, m.dateSentMillis)))
+                if (m.outgoing && m.status >= 0) add(DetailRow("Доставка", deliveryName(m.status)))
+                add(DetailRow("Размер", "${m.body.length} симв. · ${smsParts(m.body)} SMS"))
+                if (!m.outgoing) add(DetailRow("Прочитано", if (m.read) "Да" else "Нет"))
+                m.serviceCenter?.let { add(DetailRow("SMS-центр", it)) }
+                if (m.subId >= 0) add(DetailRow("SIM (subscription id)", m.subId.toString()))
+            },
+            actions = listOf(DetailAction("Копировать текст") { copyText(ctx, m.body) }),
+            onDismiss = onDetailsDismiss,
+        )
+    }
+    if (confirmDelete) {
+        ConfirmDeleteDialog(
+            title = "Удалить сообщения?",
+            text = "Выбрано: $deleteCount.\n\n" + DELETE_NOTE,
+            onDismiss = onDeleteDismiss,
+            onConfirm = onDelete,
+        )
+    }
+}
+
+private fun smsTypeName(type: Int) = when (type) {
+    Telephony.Sms.MESSAGE_TYPE_INBOX -> "Входящее"
+    Telephony.Sms.MESSAGE_TYPE_SENT -> "Отправленное"
+    Telephony.Sms.MESSAGE_TYPE_OUTBOX -> "Отправляется"
+    Telephony.Sms.MESSAGE_TYPE_QUEUED -> "В очереди"
+    Telephony.Sms.MESSAGE_TYPE_FAILED -> "Не отправлено"
+    Telephony.Sms.MESSAGE_TYPE_DRAFT -> "Черновик"
+    else -> "SMS"
+}
+
+private fun deliveryName(status: Int) = when {
+    status == Telephony.Sms.STATUS_COMPLETE -> "Доставлено"
+    status == Telephony.Sms.STATUS_PENDING -> "Ожидает доставки"
+    status >= Telephony.Sms.STATUS_FAILED -> "Не доставлено"
+    else -> "Нет отчёта"
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun Bubble(m: SmsMessage, onCopy: (String) -> Unit) {
+private fun Bubble(
+    m: SmsMessage,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onCopyCode: (String) -> Unit,
+) {
     val ctx = LocalContext.current
     val failed = m.type == Telephony.Sms.MESSAGE_TYPE_FAILED
     val pending = m.type == Telephony.Sms.MESSAGE_TYPE_OUTBOX || m.type == Telephony.Sms.MESSAGE_TYPE_QUEUED
@@ -333,7 +578,10 @@ private fun Bubble(m: SmsMessage, onCopy: (String) -> Unit) {
     }
 
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        Modifier
+            .fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else androidx.compose.ui.graphics.Color.Transparent)
+            .padding(horizontal = 12.dp, vertical = 2.dp),
         horizontalAlignment = if (m.outgoing) Alignment.End else Alignment.Start
     ) {
         Column(
@@ -347,7 +595,7 @@ private fun Bubble(m: SmsMessage, onCopy: (String) -> Unit) {
                         bottomEnd = if (m.outgoing) 4.dp else 18.dp
                     )
                 )
-                .combinedClickable(onClick = {}, onLongClick = { onCopy(m.body) })
+                .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 .padding(horizontal = 14.dp, vertical = 8.dp)
         ) {
             Text(m.body, color = fg, style = MaterialTheme.typography.bodyLarge)
@@ -365,7 +613,7 @@ private fun Bubble(m: SmsMessage, onCopy: (String) -> Unit) {
         }
         if (code != null) {
             AssistChip(
-                onClick = { onCopy(code) },
+                onClick = { onCopyCode(code) },
                 label = { Text("Копировать код $code") },
                 leadingIcon = { Icon(Icons.Filled.ContentCopy, null, Modifier.size(16.dp)) },
             )
@@ -420,12 +668,6 @@ private fun NewMessageDialog(contacts: List<Contact>, onDismiss: () -> Unit, onP
 }
 
 
-private fun copy(ctx: Context, text: String) {
-    val cm = ctx.getSystemService(ClipboardManager::class.java)
-    cm.setPrimaryClip(ClipData.newPlainText("BearPhone", text))
-    // Android 13+ сам показывает плашку "Скопировано"
-    if (android.os.Build.VERSION.SDK_INT < 33) Toast.makeText(ctx, "Скопировано", Toast.LENGTH_SHORT).show()
-}
 
 /** Сколько SMS уйдёт: 160 латиницей / 70 кириллицей на одно, в склейке 153 / 67. */
 private fun smsParts(text: String): Int {

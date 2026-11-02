@@ -96,6 +96,9 @@ object BlockStore {
 
     fun clearLog() = update { it.copy(log = emptyList()) }
 
+    /** Удалить отдельные записи журнала блокировки (по времени — оно уникально для записи). */
+    fun removeLogEntries(times: Set<Long>) = update { s -> s.copy(log = s.log.filterNot { it.timeMillis in times }) }
+
     // ---------- внутреннее ----------
 
     private fun parseRules(json: String?): List<BlockRule> = try {

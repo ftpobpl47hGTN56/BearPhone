@@ -155,12 +155,7 @@ class MainActivity : ComponentActivity() {
                                 onCall = ::placeCall,
                                 onEditBeforeCall = { number = it; tab = TAB_KEYPAD },
                                 onMessage = { openSms = it; tab = TAB_MESSAGES },
-                                onDelete = { e ->
-                                    scope.launch {
-                                        CallLogRepository.delete(this@MainActivity, e.id)
-                                        reloadTick++
-                                    }
-                                },
+                                onChanged = { reloadTick++ },
                             )
                             TAB_MESSAGES -> MessagesScreen(
                                 threads = smsThreads,
@@ -172,6 +167,7 @@ class MainActivity : ComponentActivity() {
                                 onClose = { openSms = null },
                                 onCall = ::placeCall,
                                 onRequestPermissions = { permissionLauncher.launch(permissions) },
+                                onChanged = { smsTick++ },
                             )
                             TAB_CONTACTS -> ContactsScreen(
                                 contacts = contacts,
