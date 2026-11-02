@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.collectAsState
@@ -42,6 +44,7 @@ import com.bearphone.app.data.HiddenSmsStore
 fun SettingsScreen(
     isDefaultDialer: Boolean,
     isDefaultSms: Boolean,
+    sims: List<com.bearphone.app.call.SimAccount>,
     onRequestSms: () -> Unit,
     missingPermissions: Boolean,
     onRequestDefault: () -> Unit,
@@ -52,6 +55,12 @@ fun SettingsScreen(
     var blockingOpen by rememberSaveable { mutableStateOf(false) }
     if (blockingOpen) {
         BlockingScreen(onBack = { blockingOpen = false })
+        return
+    }
+    // Подстраница "Темы и оформление"
+    var themesOpen by rememberSaveable { mutableStateOf(false) }
+    if (themesOpen) {
+        ThemesScreen(onBack = { themesOpen = false })
         return
     }
     val block by BlockStore.state.collectAsState()
@@ -136,9 +145,31 @@ fun SettingsScreen(
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
             }
     
+            // ---- темы — отдельный раздел ----
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { themesOpen = true }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(androidx.compose.material.icons.Icons.Filled.Palette, null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Темы и оформление", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Готовые темы, редактор цветов, вкладки, рамки и тени",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
+            }
+
+            // ---- SIM для вызовов ----
+            SimSection(sims)
+
             SoundSettingsSection()
-    
-            ThemeSection()
     
             // Скрытые SMS (Android не дал удалить их по-настоящему) — можно вернуть
             var hiddenCount by remember { mutableIntStateOf(HiddenSmsStore.count()) }
@@ -171,4 +202,73 @@ private fun appVersion(ctx: android.content.Context): String = try {
     ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: ""
 } catch (e: Exception) {
     ""
+}
+
+/** Выбор SIM для исходящих: SIM 1 / SIM 2 / Всегда спрашивать. */
+@Composable
+private fun SimSection(sims: List<com.bearphone.app.call.SimAccount>) {
+    val ctx = LocalContext.current
+    var mode by remember { mutableStateOf(com.bearphone.app.call.SimAccounts.mode(ctx)) }
+    SectionTitle("SIM для вызовов")
+    if (sims.size < 2) {
+        Text(
+            if (sims.isEmpty()) "SIM-карта не найдена (или нет разрешения «Телефон»)"
+            else "Одна SIM: ${sims.first().title}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+        return
+    }
+    com.bearphone.app.call.SimMode.entries.forEach { m ->
+        val label = when (m) {
+            com.bearphone.app.call.SimMode.SIM1 -> sims[0].title
+            com.bearphone.app.call.SimMode.SIM2 -> sims[1].title
+            com.bearphone.app.call.SimMode.ASK -> m.title
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { mode = m; com.bearphone.app.call.SimAccounts.setMode(ctx, m) }
+                .padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.RadioButton(
+                selected = mode == m,
+                onClick = { mode = m; com.bearphone.app.call.SimAccounts.setMode(ctx, m) }
+            )
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+    Text(
+        "На экране набора всегда есть две кнопки — SIM 1 и SIM 2. Настройка действует для звонков " +
+            "из истории, контактов, карточек и SMS.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+    )
+}
+
+/** Отдельный раздел "Темы и оформление". */
+@Composable
+fun ThemesScreen(onBack: () -> Unit) {
+    androidx.activity.compose.BackHandler(onBack = onBack)
+    val scroll = rememberScrollState()
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Назад")
+            }
+            Text("Темы и оформление", style = MaterialTheme.typography.titleLarge)
+        }
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier.fillMaxSize().columnScrollbar(scroll).verticalScroll(scroll)
+            ) {
+                ThemeSection()
+                Spacer(Modifier.height(24.dp))
+            }
+            ScrollJumpButtons(scroll)
+        }
+    }
 }

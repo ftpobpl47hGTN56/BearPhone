@@ -64,6 +64,10 @@ class MainActivity : ComponentActivity() {
     private var number by mutableStateOf("")
     private var isDefault by mutableStateOf(false)
     private var isDefaultSms by mutableStateOf(false)
+    /** SIM-карты для вызовов (0, 1 или 2) */
+    private var sims by mutableStateOf<List<com.bearphone.app.call.SimAccount>>(emptyList())
+    /** Номер, для которого надо спросить SIM (режим "Всегда спрашивать") */
+    private var pendingCall by mutableStateOf<String?>(null)
     /** Текст, пришедший вместе с sms:-ссылкой ("sms:+7912...?body=Привет") */
     private var smsDraft by mutableStateOf<String?>(null)
     private var missingPerms by mutableStateOf(false)
@@ -139,6 +143,15 @@ class MainActivity : ComponentActivity() {
                     if (r != recents) recents = r
                 }
 
+                pendingCall?.let { n ->
+                    com.bearphone.app.ui.SimPickerDialog(
+                        number = n,
+                        sims = sims,
+                        onPick = { sim -> pendingCall = null; placeCallWith(n, sim) },
+                        onDismiss = { pendingCall = null },
+                    )
+                }
+
                 Scaffold(
                     bottomBar = {
                         val st = com.bearphone.app.ui.theme.LocalBearStyle.current
@@ -160,6 +173,8 @@ class MainActivity : ComponentActivity() {
                                 contacts = contacts,
                                 recents = recents,
                                 onCall = ::placeCall,
+                                sims = sims,
+                                onCallSim = ::placeCallWith,
                                 onMessage = { openSms = it; tab = TAB_MESSAGES },
                                 onCallsChanged = { reloadTick++ },
                             )
@@ -197,6 +212,7 @@ class MainActivity : ComponentActivity() {
                             TAB_SETTINGS -> SettingsScreen(
                                 isDefaultDialer = isDefault,
                                 isDefaultSms = isDefaultSms,
+                                sims = sims,
                                 onRequestSms = { smsRoleLauncher.launch(SmsRole.requestIntent(this@MainActivity)) },
                                 missingPermissions = missingPerms,
                                 onRequestDefault = { roleLauncher.launch(Dialer.requestDefaultIntent(this@MainActivity)) },
@@ -293,13 +309,23 @@ class MainActivity : ComponentActivity() {
 
     private fun placeCall(n: String) {
         if (n.isBlank()) return
-        Dialer.call(this, n)
+        val sim = com.bearphone.app.call.SimAccounts.resolve(this, sims)
+        if (sim == null && sims.size > 1) {
+            pendingCall = n // покажем выбор SIM
+            return
+        }
+        placeCallWith(n, sim)
+    }
+
+    private fun placeCallWith(n: String, sim: com.bearphone.app.call.SimAccount?) {
+        Dialer.call(this, n, sim)
         number = ""
     }
 
     private fun refreshStatus() {
         isDefault = Dialer.isDefault(this)
         isDefaultSms = SmsRole.isHeld(this)
+        sims = com.bearphone.app.call.SimAccounts.list(this)
         missingPerms = permissions.any { !granted(it) }
         reloadTick++
     }

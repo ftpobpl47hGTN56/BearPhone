@@ -57,7 +57,18 @@ object ContactsRepository {
         map.values.toList()
     }
 
-    data class ContactInfo(val id: Long, val lookupKey: String, val name: String, val numbers: List<String>)
+    data class ContactInfo(
+        val id: Long,
+        val lookupKey: String,
+        val name: String,
+        val numbers: List<String>,
+        /** Тип учётной записи, где хранится контакт ("com.google", "...sim"...) */
+        val accountType: String? = null,
+    ) {
+        /** Контакт на SIM-карте — сторонним приложениям его редактировать нельзя */
+        val onSim: Boolean
+            get() = accountType?.lowercase()?.let { "sim" in it || "icc" in it } == true
+    }
 
     /** Полная информация о контакте по номеру (для карточки). null — номера нет в контактах. */
     suspend fun lookup(ctx: Context, number: String?): ContactInfo? = withContext(Dispatchers.IO) {
@@ -87,7 +98,17 @@ object ContactsRepository {
                     if (n.isNotEmpty() && numbers.none { normalize(it) == normalize(n) }) numbers += n
                 }
             }
-            ContactInfo(id, key, name, numbers.ifEmpty { listOf(number) })
+            val account = ctx.contentResolver.query(
+                ContactsContract.RawContacts.CONTENT_URI,
+                arrayOf(ContactsContract.RawContacts.ACCOUNT_TYPE),
+                ContactsContract.RawContacts.CONTACT_ID + "=?", arrayOf(id.toString()), null
+            )?.use { c ->
+                // Если контакт склеен из нескольких — важна хотя бы одна НЕ-SIM запись (её можно править)
+                val types = ArrayList<String>()
+                while (c.moveToNext()) c.getString(0)?.let { types += it }
+                types.firstOrNull { t -> t.lowercase().let { "sim" !in it && "icc" !in it } } ?: types.firstOrNull()
+            }
+            ContactInfo(id, key, name, numbers.ifEmpty { listOf(number) }, account)
         } catch (e: Exception) {
             null
         }

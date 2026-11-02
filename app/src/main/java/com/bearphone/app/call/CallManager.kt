@@ -114,6 +114,12 @@ object CallManager {
         s.setAudioRoute(target)
     }
 
+    /** Звонок ждёт выбора SIM (Telecom не знает, через какую звонить). */
+    fun selectSim(handle: android.telecom.PhoneAccountHandle) {
+        rawCalls.firstOrNull { it.stateCompat() == android.telecom.Call.STATE_SELECT_PHONE_ACCOUNT }
+            ?.phoneAccountSelected(handle, false)
+    }
+
     fun playDtmf(c: Char) {
         val call = primary() ?: return
         call.playDtmfTone(c)

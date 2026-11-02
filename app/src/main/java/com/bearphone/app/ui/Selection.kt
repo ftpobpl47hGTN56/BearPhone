@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.SimCard
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.filled.SelectAll
@@ -274,4 +275,35 @@ fun CardArrowButton(onClick: () -> Unit) {
             modifier = Modifier.size(22.dp)
         )
     }
+}
+
+/** Выбор SIM перед вызовом (режим «Всегда спрашивать»). */
+@Composable
+fun SimPickerDialog(
+    number: String,
+    sims: List<com.bearphone.app.call.SimAccount>,
+    onPick: (com.bearphone.app.call.SimAccount) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Позвонить с какой SIM?") },
+        text = {
+            Column {
+                Text(number, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp))
+                sims.forEach { sim ->
+                    androidx.compose.material3.FilledTonalButton(
+                        onClick = { onPick(sim) },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        Icon(androidx.compose.material.icons.Icons.Filled.SimCard, null)
+                        androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
+                        Text(sim.title)
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
+    )
 }

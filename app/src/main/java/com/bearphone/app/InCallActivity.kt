@@ -58,6 +58,8 @@ class InCallActivity : ComponentActivity() {
                     onSpeaker = CallManager::toggleSpeaker,
                     onHold = CallManager::toggleHold,
                     onDtmf = CallManager::playDtmf,
+                    sims = com.bearphone.app.call.SimAccounts.list(this@InCallActivity),
+                    onSelectSim = { CallManager.selectSim(it.handle) },
                 )
             }
         }

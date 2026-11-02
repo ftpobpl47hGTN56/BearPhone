@@ -97,6 +97,7 @@ fun ContactCardScreen(
 
     // После редактирования/добавления в системных Контактах — перечитать контакт
     var reloadInfo by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    var simDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
     val contactsLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { reloadInfo++ }
@@ -197,6 +198,10 @@ fun ContactCardScreen(
                                 MaterialTheme.colorScheme.primary
                             ) {
                                 val i = info
+                                if (i != null && i.onSim) {
+                                    simDialog = true
+                                    return@CardAction
+                                }
                                 val intent = if (i != null) {
                                     Intent(Intent.ACTION_EDIT)
                                         .setDataAndType(
@@ -265,6 +270,47 @@ fun ContactCardScreen(
             }
             ScrollJumpButtons(listState)
         }
+    }
+
+    // SIM-контакт: системный редактор его не меняет — предлагаем рабочие варианты
+    if (simDialog) {
+        val i = info
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { simDialog = false },
+            title = { Text("Контакт на SIM-карте") },
+            text = {
+                Text(
+                    "Android не даёт другим приложениям менять контакты, сохранённые на SIM. " +
+                        "Можно открыть его в системных «Контактах» (они умеют править SIM) " +
+                        "или скопировать в память телефона и редактировать там."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    simDialog = false
+                    // Копия в телефон: форма нового контакта с тем же именем и всеми номерами
+                    val intent = Intent(ContactsContract.Intents.Insert.ACTION)
+                        .setType(ContactsContract.RawContacts.CONTENT_TYPE)
+                        .putExtra(ContactsContract.Intents.Insert.NAME, i?.name ?: "")
+                        .putExtra(ContactsContract.Intents.Insert.PHONE, numbers.getOrNull(0) ?: number)
+                        .apply {
+                            numbers.getOrNull(1)?.let { putExtra(ContactsContract.Intents.Insert.SECONDARY_PHONE, it) }
+                            numbers.getOrNull(2)?.let { putExtra(ContactsContract.Intents.Insert.TERTIARY_PHONE, it) }
+                        }
+                        .putExtra("finishActivityOnSaveCompleted", true)
+                    try { contactsLauncher.launch(intent) } catch (e: Exception) { }
+                }) { Text("Копировать в телефон") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    simDialog = false
+                    if (i != null) {
+                        val view = Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.getLookupUri(i.id, i.lookupKey))
+                        try { contactsLauncher.launch(view) } catch (e: Exception) { }
+                    }
+                }) { Text("Открыть в Контактах") }
+            }
+        )
     }
 
     confirm?.let { what ->

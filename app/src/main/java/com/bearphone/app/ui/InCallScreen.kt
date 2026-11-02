@@ -64,8 +64,12 @@ fun InCallScreen(
     onSpeaker: () -> Unit,
     onHold: () -> Unit,
     onDtmf: (Char) -> Unit,
+    sims: List<com.bearphone.app.call.SimAccount> = emptyList(),
+    onSelectSim: (com.bearphone.app.call.SimAccount) -> Unit = {},
 ) {
     val ringing = call.state == Call.STATE_RINGING
+    // Telecom не знает, с какой SIM звонить (в системе "всегда спрашивать") — спрашиваем мы
+    val selectSim = call.state == Call.STATE_SELECT_PHONE_ACCOUNT
     val bg = MaterialTheme.colorScheme.background
     val fg = MaterialTheme.colorScheme.onBackground
     val accent = MaterialTheme.colorScheme.primary
@@ -85,6 +89,7 @@ fun InCallScreen(
     val status = when (call.state) {
         Call.STATE_RINGING -> "Входящий звонок"
         Call.STATE_DIALING, Call.STATE_CONNECTING -> "Вызов…"
+        Call.STATE_SELECT_PHONE_ACCOUNT -> "Выберите SIM"
         Call.STATE_HOLDING -> "На удержании"
         Call.STATE_DISCONNECTING, Call.STATE_DISCONNECTED -> "Завершение…"
         Call.STATE_ACTIVE ->
@@ -125,7 +130,19 @@ fun InCallScreen(
 
             Spacer(Modifier.weight(1f))
 
-            if (ringing) {
+            if (selectSim && sims.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    sims.forEach { sim ->
+                        androidx.compose.material3.Button(
+                            onClick = { onSelectSim(sim) },
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = CallGreen),
+                            modifier = Modifier.bearFrame()
+                        ) { Text(sim.title) }
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+                RoundAction(Icons.Filled.CallEnd, "Отмена", CallRed, onHangup)
+            } else if (ringing) {
                 // ----- входящий: две большие кнопки -----
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     RoundAction(Icons.Filled.CallEnd, "Сбросить", CallRed, onHangup)

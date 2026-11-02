@@ -116,6 +116,8 @@ fun KeypadScreen(
     onCall: (String) -> Unit,
     onMessage: (String) -> Unit,
     onCallsChanged: () -> Unit = {},
+    sims: List<com.bearphone.app.call.SimAccount> = emptyList(),
+    onCallSim: (String, com.bearphone.app.call.SimAccount) -> Unit = { n, _ -> onCall(n) },
 ) {
     val haptic = LocalHapticFeedback.current
     val block by BlockStore.state.collectAsState()
@@ -271,6 +273,8 @@ fun KeypadScreen(
                 number = number,
                 onNumberChange = onNumberChange,
                 onCall = { onCall(number) },
+                sims = sims,
+                onCallSim = { sim -> onCallSim(number, sim) },
                 onHide = { padVisible = false },
                 onKey = { digit ->
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -287,6 +291,8 @@ private fun DialPad(
     number: String,
     onNumberChange: (String) -> Unit,
     onCall: () -> Unit,
+    sims: List<com.bearphone.app.call.SimAccount>,
+    onCallSim: (com.bearphone.app.call.SimAccount) -> Unit,
     onHide: () -> Unit,
     onKey: (String) -> Unit,
 ) {
@@ -396,15 +402,52 @@ private fun DialPad(
             }
 
             // ---- вызов ----
-            Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
-                FloatingActionButton(
-                    onClick = onCall,
-                    containerColor = CallGreen,
-                    contentColor = Color.White,
-                    shape = CircleShape,
-                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
-                    modifier = Modifier.size(64.dp).bearFrame(CircleShape, Color.White.copy(alpha = 0.35f))
-                ) { Icon(Icons.Filled.Call, "Позвонить", Modifier.size(30.dp)) }
+            if (sims.size >= 2) {
+                // Две SIM — две кнопки: сразу звонок с нужной, без вопросов
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 10.dp, start = 24.dp, end = 24.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    sims.take(2).forEach { sim ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            FloatingActionButton(
+                                onClick = { onCallSim(sim) },
+                                containerColor = CallGreen,
+                                contentColor = Color.White,
+                                shape = RoundedCornerShape(24.dp),
+                                elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                                modifier = Modifier
+                                    .size(width = 112.dp, height = 56.dp)
+                                    .bearFrame(RoundedCornerShape(24.dp), Color.White.copy(alpha = 0.35f))
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Call, null, Modifier.size(24.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("${sim.index + 1}", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (sim.label.isNotBlank()) {
+                                Text(
+                                    sim.label, maxLines = 1,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(top = 3.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
+                    FloatingActionButton(
+                        onClick = onCall,
+                        containerColor = CallGreen,
+                        contentColor = Color.White,
+                        shape = CircleShape,
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),
+                        modifier = Modifier.size(64.dp).bearFrame(CircleShape, Color.White.copy(alpha = 0.35f))
+                    ) { Icon(Icons.Filled.Call, "Позвонить", Modifier.size(30.dp)) }
+                }
             }
         }
     }

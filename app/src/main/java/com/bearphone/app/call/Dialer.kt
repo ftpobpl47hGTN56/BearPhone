@@ -17,7 +17,11 @@ import androidx.core.content.ContextCompat
 object Dialer {
 
     @SuppressLint("MissingPermission")
-    fun call(ctx: Context, number: String) {
+    /**
+     * @param sim конкретная SIM; null — пусть решает система (если у неё есть SIM по умолчанию,
+     *            иначе Telecom спросит — экран звонка покажет выбор SIM)
+     */
+    fun call(ctx: Context, number: String, sim: SimAccount? = null) {
         val clean = number.trim()
         if (clean.isEmpty()) return
         if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CALL_PHONE)
@@ -30,7 +34,9 @@ object Dialer {
         // '#' в tel: нужно кодировать, иначе USSD вида *100# обрежется
         val uri = Uri.fromParts("tel", clean, null)
         try {
-            tm.placeCall(uri, null)
+            val extras = android.os.Bundle()
+            sim?.let { extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, it.handle) }
+            tm.placeCall(uri, extras)
         } catch (e: SecurityException) {
             Toast.makeText(ctx, "Не удалось позвонить: ${e.message}", Toast.LENGTH_SHORT).show()
         }
