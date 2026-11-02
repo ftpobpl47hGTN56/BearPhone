@@ -82,6 +82,16 @@
             </intent-filter>
         </service>
 
+        <!-- Блокировка: Telecom спрашивает про каждый входящий до звонка -->
+        <service
+            android:name=".block.BearScreeningService"
+            android:exported="true"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
+        </service>
+
         <!-- Кнопки "Ответить / Сбросить" в уведомлении -->
         <receiver
             android:name=".call.CallActionReceiver"

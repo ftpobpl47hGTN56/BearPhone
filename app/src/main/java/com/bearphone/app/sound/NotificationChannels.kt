@@ -20,6 +20,9 @@ object NotificationChannels {
     /** Идущий разговор: тихо, просто чтобы вернуться на экран звонка. */
     const val ONGOING_CALL = "ongoing_call"
 
+    /** Заблокированные звонки — тихо, только в шторке. */
+    const val BLOCKED_CALLS = "blocked_calls"
+
     private const val MISSED_PREFIX = "missed_calls_v"
 
     /** Актуальный ID канала пропущенных звонков. Используйте его в NotificationCompat.Builder. */
@@ -46,6 +49,14 @@ object NotificationChannels {
         if (nm.getNotificationChannel(ONGOING_CALL) == null) {
             val ch = NotificationChannel(
                 ONGOING_CALL, "Текущий звонок", NotificationManager.IMPORTANCE_LOW
+            ).apply { setSound(null, null) }
+            nm.createNotificationChannel(ch)
+        }
+
+        // 1в) Заблокированные — без звука
+        if (nm.getNotificationChannel(BLOCKED_CALLS) == null) {
+            val ch = NotificationChannel(
+                BLOCKED_CALLS, "Заблокированные звонки", NotificationManager.IMPORTANCE_LOW
             ).apply { setSound(null, null) }
             nm.createNotificationChannel(ch)
         }

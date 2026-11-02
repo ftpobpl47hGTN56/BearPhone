@@ -20,6 +20,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.bearphone.app.ui.theme.bearFrame
+import com.bearphone.app.block.BlockStore
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 
 @Composable
 fun SettingsScreen(
@@ -29,6 +43,14 @@ fun SettingsScreen(
     onRequestPermissions: () -> Unit,
     onOpenAppSettings: () -> Unit,
 ) {
+    // Подстраница "Блокировка" открывается внутри вкладки "Настройки"
+    var blockingOpen by rememberSaveable { mutableStateOf(false) }
+    if (blockingOpen) {
+        BlockingScreen(onBack = { blockingOpen = false })
+        return
+    }
+    val block by BlockStore.state.collectAsState()
+
     Column(
         Modifier
             .fillMaxSize()
@@ -59,6 +81,27 @@ fun SettingsScreen(
                     OutlinedButton(onClick = onRequestPermissions, modifier = Modifier.bearFrame()) { Text("Выдать разрешения") }
                 }
             }
+        }
+
+        // ---- блокировка ----
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable { blockingOpen = true }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Block, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Блокировка номеров", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "Правил: ${block.rules.size} · заблокировано: ${block.log.size}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null)
         }
 
         SoundSettingsSection()

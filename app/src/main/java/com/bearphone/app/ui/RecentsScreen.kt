@@ -39,6 +39,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.bearphone.app.block.BlockStore
+import com.bearphone.app.block.NumberMatcher
 import com.bearphone.app.data.CallLogEntry
 import com.bearphone.app.ui.theme.CallGreen
 import com.bearphone.app.ui.theme.CallRed
@@ -148,20 +150,37 @@ fun RecentsScreen(
 
     menuFor?.let { row ->
         val e = row.entry
+        val blockedBy = BlockStore.ruleFor(e.number)
         AlertDialog(
             onDismissRequest = { menuFor = null },
             title = { Text(row.title) },
-            text = { if (e.number.isNotBlank()) Text(e.number) },
-            confirmButton = {
-                if (e.number.isNotBlank()) {
-                    TextButton(onClick = { menuFor = null; onEditBeforeCall(e.number) }) {
-                        Text("Изменить перед вызовом")
+            text = {
+                Column {
+                    if (e.number.isNotBlank()) {
+                        Text(e.number, color = muted)
+                        TextButton(onClick = { menuFor = null; onEditBeforeCall(e.number) }) {
+                            Text("Изменить перед вызовом")
+                        }
+                        if (blockedBy == null) {
+                            TextButton(onClick = { menuFor = null; BlockStore.addRule(e.number, e.name ?: "") }) {
+                                Text("Заблокировать номер", color = CallRed)
+                            }
+                        } else if (!NumberMatcher.isMask(blockedBy.pattern)) {
+                            TextButton(onClick = { menuFor = null; BlockStore.removeRule(blockedBy) }) {
+                                Text("Разблокировать номер")
+                            }
+                        } else {
+                            Text("Попадает под маску ${blockedBy.pattern}", color = muted)
+                        }
+                    }
+                    TextButton(onClick = { menuFor = null; onDelete(e) }) {
+                        Text("Удалить из журнала")
                     }
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { menuFor = null; onDelete(e) }) { Text("Удалить", color = CallRed) }
-            }
+            confirmButton = {
+                TextButton(onClick = { menuFor = null }) { Text("Закрыть") }
+            },
         )
     }
 }
