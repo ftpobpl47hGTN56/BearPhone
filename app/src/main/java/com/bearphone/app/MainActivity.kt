@@ -29,6 +29,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
 import com.bearphone.app.call.Dialer
@@ -140,7 +142,9 @@ class MainActivity : ComponentActivity() {
                     val c = ContactsRepository.loadAll(this@MainActivity)
                     if (c != contacts) contacts = c
                     val r = CallLogRepository.load(this@MainActivity)
-                    if (r != recents) recents = r
+                    // Имена из контактов: у звонков, сделанных через BearPhone, CACHED_NAME пустой
+                    val named = CallLogRepository.withNames(r, c)
+                    if (named != recents) recents = named
                 }
 
                 pendingCall?.let { n ->
@@ -155,7 +159,25 @@ class MainActivity : ComponentActivity() {
                 Scaffold(
                     bottomBar = {
                         val st = com.bearphone.app.ui.theme.LocalBearStyle.current
-                        NavigationBar(containerColor = st.tabColor, contentColor = st.onTabColor) {
+                        NavigationBar(
+                            containerColor = st.tabColor,
+                            contentColor = st.onTabColor,
+                            // Тень над навбаром: затемнённый градиент поверх списка
+                            modifier = Modifier.drawBehind {
+                                val h = 18.dp.toPx()
+                                drawRect(
+                                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        listOf(
+                                            androidx.compose.ui.graphics.Color.Transparent,
+                                            androidx.compose.ui.graphics.Color.Black.copy(alpha = if (st.isDark) 0.45f else 0.15f),
+                                        ),
+                                        startY = -h, endY = 0f,
+                                    ),
+                                    topLeft = androidx.compose.ui.geometry.Offset(0f, -h),
+                                    size = androidx.compose.ui.geometry.Size(size.width, h),
+                                )
+                            },
+                        ) {
                             NavTab(TAB_KEYPAD, Icons.Filled.Dialpad, "Набор")
                             NavTab(TAB_RECENTS, Icons.Filled.History, "Вызовы")
                             NavTab(TAB_MESSAGES, Icons.AutoMirrored.Filled.Message, "SMS", smsThreads.sumOf { it.unread })

@@ -74,6 +74,34 @@ object CallLogRepository {
         result
     }
 
+    /**
+     * Подставить имена из контактов (в т.ч. с SIM). Поле CACHED_NAME в журнале заполняет
+     * только системная звонилка — с BearPhone по умолчанию оно пустое у новых звонков.
+     */
+    fun withNames(entries: List<CallLogEntry>, contacts: List<Contact>): List<CallLogEntry> {
+        if (contacts.isEmpty()) return entries
+        val exact = HashMap<String, String>()   // полный ключ номера
+        val last10 = HashMap<String, String>()  // последние 10 цифр (+7 / 8 / без кода)
+        val short = ArrayList<Pair<String, String>>() // городские 5–9 цифр: "227-42-36"
+        contacts.forEach { c ->
+            c.numbers.forEach { n ->
+                val k = com.bearphone.app.block.NumberMatcher.key(n)
+                val d = n.filter(Char::isDigit)
+                if (k.isNotEmpty()) exact.putIfAbsent(k, c.name)
+                if (d.length >= 10) last10.putIfAbsent(d.takeLast(10), c.name)
+                else if (d.length >= 5) short += d to c.name
+            }
+        }
+        return entries.map { e ->
+            if (e.name != null || e.number.isBlank()) return@map e
+            val d = e.number.filter(Char::isDigit)
+            val name = exact[com.bearphone.app.block.NumberMatcher.key(e.number)]
+                ?: (if (d.length >= 10) last10[d.takeLast(10)] else null)
+                ?: short.firstOrNull { (s, _) -> d == s || (d.length in (s.length + 1)..11 && d.endsWith(s)) }?.second
+            if (name != null) e.copy(name = name) else e
+        }
+    }
+
     /** Удалить записи (нужен WRITE_CALL_LOG). Отрицательные id — это журнал BearPhone, их тут не трогаем. */
     suspend fun deleteMany(ctx: Context, ids: Collection<Long>): Int = withContext(Dispatchers.IO) {
         val real = ids.filter { it > 0 }

@@ -64,6 +64,8 @@ import androidx.compose.ui.unit.dp
 import com.bearphone.app.block.BlockStore
 import com.bearphone.app.block.NumberMatcher
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.NotificationsOff
@@ -471,6 +473,53 @@ private fun snippetAround(body: String, query: String): String {
     return "…" + flat.substring(i - 30)
 }
 
+/**
+ * Бан отправителя прямо из диалога (в т.ч. буквенных: "Sberbank Loan", "MTS").
+ * Новые SMS от него сохраняются тихо — без уведомления, во вкладке «Заблокированные».
+ */
+@Composable
+private fun BanButton(address: String, name: String?, thread: SmsThread?, onChanged: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val block by BlockStore.state.collectAsState()
+    val rule = block.rules.firstOrNull { NumberMatcher.matches(it.pattern, address) }
+    var confirm by remember { mutableStateOf(false) }
+    IconButton(onClick = {
+        when {
+            rule == null -> confirm = true
+            !NumberMatcher.isMask(rule.pattern) -> { BlockStore.removeRule(rule); onChanged() }
+            else -> Toast.makeText(ctx, "Заблокирован маской ${rule.pattern} — снимите её в «Блокировке»", Toast.LENGTH_LONG).show()
+        }
+    }) {
+        if (rule == null) Icon(Icons.Filled.Block, "Заблокировать отправителя", tint = com.bearphone.app.ui.theme.CallRed)
+        else Icon(Icons.Filled.LockOpen, "Разблокировать отправителя", tint = com.bearphone.app.ui.theme.CallGreen)
+    }
+    if (confirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Заблокировать «${name ?: address}»?") },
+            text = {
+                Text(
+                    "Уведомлений от отправителя больше не будет. Новые SMS сохранятся тихо " +
+                        "во вкладке «Заблокированные». Звонки с этого номера тоже будут отклоняться."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    confirm = false
+                    BlockStore.addRule(address, name ?: "SMS")
+                    scope.launch {
+                        thread?.let { SmsRepository.markRead(ctx, it) }
+                        com.bearphone.app.sms.SmsNotifier.cancel(ctx, address)
+                        onChanged()
+                    }
+                }) { Text("Заблокировать", color = com.bearphone.app.ui.theme.CallRed) }
+            },
+            dismissButton = { androidx.compose.material3.TextButton(onClick = { confirm = false }) { Text("Отмена") } },
+        )
+    }
+}
+
 /** Колокольчик в шапке диалога: звук / только вибрация / без звука для этого отправителя. */
 @Composable
 private fun MuteButton(address: String) {
@@ -623,6 +672,7 @@ private fun ConversationScreen(
                 }
             }
             MuteButton(address)
+            BanButton(address, name, thread, onChanged)
             if (canReply) CardArrowButton { cardOpen = true }
             if (canReply) {
                 IconButton(onClick = { onCall(address) }) {

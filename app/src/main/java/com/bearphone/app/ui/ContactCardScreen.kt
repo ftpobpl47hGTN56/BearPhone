@@ -60,6 +60,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -413,7 +414,9 @@ private fun CardAction(icon: ImageVector, description: String, color: Color, onC
     FilledIconButton(
         onClick = onClick,
         colors = IconButtonDefaults.filledIconButtonColors(
-            containerColor = color.copy(alpha = 0.16f),
+            // ВАЖНО: заливка непрозрачная. Полупрозрачная пропускала тень снизу,
+            // а Android рисует тень круга многоугольником — отсюда тёмные "восьмиугольники"
+            containerColor = color.copy(alpha = 0.16f).compositeOver(MaterialTheme.colorScheme.surfaceContainer),
             contentColor = color,
         ),
         modifier = Modifier.size(56.dp).bearFrame(CircleShape)

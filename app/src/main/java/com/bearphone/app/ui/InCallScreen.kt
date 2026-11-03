@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -201,7 +202,7 @@ private fun Toggle(icon: ImageVector, label: String, checked: Boolean, onClick: 
             onCheckedChange = { onClick() },
             modifier = Modifier.size(60.dp).bearFrame(CircleShape),
             colors = IconButtonDefaults.filledIconToggleButtonColors(
-                containerColor = fg.copy(alpha = 0.10f),
+                containerColor = fg.copy(alpha = 0.10f).compositeOver(bg), // непрозрачно — без "восьмиугольника" тени
                 contentColor = fg,
                 checkedContainerColor = fg,
                 checkedContentColor = bg,
@@ -222,7 +223,7 @@ private fun DtmfPad(onKey: (Char) -> Unit) {
                 r.forEach { c ->
                     FloatingActionButton(
                         onClick = { onKey(c) },
-                        containerColor = fg.copy(alpha = 0.08f),
+                        containerColor = fg.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.background),
                         contentColor = fg,
                         shape = CircleShape,
                         elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp, 0.dp, 0.dp),

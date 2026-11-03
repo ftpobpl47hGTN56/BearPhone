@@ -71,8 +71,9 @@ object BlockStore {
     /** @return false, если такое правило уже есть или строка пустая */
     fun addRule(pattern: String, note: String = ""): Boolean {
         val clean = pattern.trim()
-        if (NumberMatcher.key(clean).isEmpty()) return false
-        if (_state.value.rules.any { NumberMatcher.key(it.pattern) == NumberMatcher.key(clean) }) return false
+        if (clean.isEmpty()) return false
+        if (NumberMatcher.key(clean).isEmpty() && clean.none { it.isLetter() }) return false
+        if (_state.value.rules.any { NumberMatcher.senderKey(it.pattern) == NumberMatcher.senderKey(clean) }) return false
         update { it.copy(rules = listOf(BlockRule(clean, note.trim())) + it.rules) }
         return true
     }
@@ -165,6 +166,10 @@ object NumberMatcher {
 
     fun matches(pattern: String, number: String?): Boolean {
         if (number.isNullOrBlank()) return false
+        // Буквенный отправитель ("MTS", "Sberbank Loan") — сравниваем по тексту
+        if (pattern.any { it.isLetter() } || number.any { it.isLetter() }) {
+            return senderKey(pattern) == senderKey(number)
+        }
         val n = key(number)
         if (n.isEmpty()) return false
         val p = key(pattern)
