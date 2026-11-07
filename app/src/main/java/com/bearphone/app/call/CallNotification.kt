@@ -90,7 +90,10 @@ object CallNotification {
     }
 
     @SuppressLint("MissingPermission")
-    fun showMissed(ctx: Context, title: String) {
+    fun cancelMissed(ctx: Context) = NotificationManagerCompat.from(ctx).cancel(ID_MISSED)
+
+    /** @param count сколько пропущенных накопилось (для текста и цифры на иконке лаунчера) */
+    fun showMissed(ctx: Context, title: String, count: Int = 1) {
         if (!canPost(ctx)) return
         val open = PendingIntent.getActivity(
             ctx, 10,
@@ -101,8 +104,9 @@ object CallNotification {
         )
         val n = NotificationCompat.Builder(ctx, NotificationChannels.missedCallsId(ctx))
             .setSmallIcon(R.drawable.ic_stat_call)
-            .setContentTitle("Пропущенный звонок")
-            .setContentText(title)
+            .setContentTitle(if (count > 1) "Пропущенных звонков: $count" else "Пропущенный звонок")
+            .setContentText(if (count > 1) "Последний: $title" else title)
+            .setNumber(count) // цифра на иконке приложения (бейдж лаунчера)
             .setCategory(NotificationCompat.CATEGORY_MISSED_CALL)
             .setAutoCancel(true)
             .setContentIntent(open)

@@ -78,6 +78,8 @@ class MainActivity : ComponentActivity() {
     /** Увеличиваем, чтобы перечитать журнал/контакты (после звонка, выдачи прав и т.п.) */
     private var reloadTick by mutableIntStateOf(0)
     private var smsThreads by mutableStateOf<List<SmsThread>>(emptyList())
+    /** Пропущенные звонки с последнего открытия вкладки «Вызовы» */
+    private var missedCount by mutableIntStateOf(0)
     /** Номер открытого SMS-диалога (null — список диалогов) */
     private var openSms by mutableStateOf<String?>(null)
     /** Меняется при любом изменении базы SMS — экраны перечитывают данные */
@@ -131,6 +133,14 @@ class MainActivity : ComponentActivity() {
             BearPhoneTheme {
                 val scope = rememberCoroutineScope()
 
+                // Открыли «Вызовы» — пропущенные просмотрены, бейдж гаснет
+                LaunchedEffect(tab, recents) {
+                    missedCount = if (tab == TAB_RECENTS) {
+                        com.bearphone.app.call.MissedCalls.markSeen(this@MainActivity)
+                        0
+                    } else com.bearphone.app.call.MissedCalls.count(this@MainActivity, recents)
+                }
+
                 LaunchedEffect(reloadTick, smsTick) {
                     val t = SmsRepository.loadThreads(this@MainActivity)
                     if (t != smsThreads) smsThreads = t
@@ -179,7 +189,7 @@ class MainActivity : ComponentActivity() {
                             },
                         ) {
                             NavTab(TAB_KEYPAD, Icons.Filled.Dialpad, "Набор")
-                            NavTab(TAB_RECENTS, Icons.Filled.History, "Вызовы")
+                            NavTab(TAB_RECENTS, Icons.Filled.History, "Вызовы", missedCount)
                             NavTab(TAB_MESSAGES, Icons.AutoMirrored.Filled.Message, "SMS", smsThreads.sumOf { it.unread })
                             NavTab(TAB_CONTACTS, Icons.Filled.Person, "Контакты")
                             NavTab(TAB_SETTINGS, Icons.Filled.Settings, "Настройки")

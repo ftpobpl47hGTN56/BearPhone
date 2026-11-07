@@ -73,7 +73,7 @@ class BearInCallService : InCallService() {
 
         if (missed) {
             val number = call.details.handle?.schemeSpecificPart
-            CallNotification.showMissed(this, titleFor(number))
+            CallNotification.showMissed(this, titleFor(number), MissedCalls.increment(this))
         }
     }
 
